@@ -1,12 +1,18 @@
-use crate::env::{Environment, which};
-use anyhow::Result;
+use crate::errors::AppResult;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-pub fn init_logger() -> Result<()> {
-    let log_level = match which() {
-        Environment::Development => "debug",
-        Environment::Production => "info",
-    };
+pub fn init_logger<T: AsRef<str>>(log_level: T) -> AppResult<()> {
+    let log_level = log_level.as_ref();
+    assert!(
+        log_level == "error"
+            || log_level == "warn"
+            || log_level == "info"
+            || log_level == "debug"
+            || log_level == "trace"
+            || log_level == "off",
+        "Invalid log level: {}",
+        log_level
+    );
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| log_level.into());
     let subscriber = tracing_subscriber::fmt::layer()
