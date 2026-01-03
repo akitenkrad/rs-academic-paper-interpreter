@@ -1,16 +1,19 @@
 [package]
 edition.workspace = true
 license.workspace = true
-name = "app"
+name = "academic_paper_interpreter"
 publish.workspace = true
 version.workspace = true
 
+[lib]
+name = "academic_paper_interpreter"
+path = "src/lib.rs"
+
 [[bin]]
-name = "app"
-path = "src/bin/app.rs"
+name = "academic-paper-interpreter"
+path = "src/main.rs"
 
 [workspace]
-members = ["shared"]
 
 [workspace.package]
 edition = "2024"
@@ -19,19 +22,47 @@ publish = false
 version = "0.1.0"
 
 [workspace.dependencies]
+anthropic-tools = { git = "https://github.com/akitenkrad/rs-anthropic-tools.git" }
 anyhow = "1.0.100"
+arxiv-tools = { git = "https://github.com/akitenkrad/rs-arxiv-tools.git" }
+async-trait = "0.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
 derive-new = "0.7.0"
 indicatif = "0.18.3"
+openai-tools = { git = "https://github.com/akitenkrad/rs-openai-tools.git" }
+regex = "1.12.2"
+reqwest = { version = "0.13.1", features = ["json"] }
+rsrpp = { git = "https://github.com/akitenkrad/rsrpp.git" }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-shared = { path = "./shared" }
+serde_json = "1.0.148"
+ss-tools = { git = "https://github.com/akitenkrad/rs-ss-tools.git" }
 strum = { version = "0.27.2", features = ["derive"] }
 test-log = { version = "0.2.19", features = ["trace"] }
-tracing = { version = "0.1.43", features = ["log"] }
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 thiserror = "2.0.17"
+tokio = { version = "1.49.0", features = ["full"] }
+tracing = { version = "0.1.44", features = ["log"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 
 [dependencies]
-shared = { workspace = true }
-tracing = { workspace = true }
+anthropic-tools = { workspace = true }
+anyhow = { workspace = true }
+arxiv-tools = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+derive-new = { workspace = true }
+indicatif = { workspace = true }
+openai-tools = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+rsrpp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ss-tools = { workspace = true }
+strum = { version = "0.27.2", features = ["derive"] }
 test-log = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

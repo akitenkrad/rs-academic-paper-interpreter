@@ -1,4 +1,4 @@
-use crate::errors::AppResult;
+use crate::shared::errors::AppResult;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init_logger<T: AsRef<str>>(log_level: T) -> AppResult<()> {
