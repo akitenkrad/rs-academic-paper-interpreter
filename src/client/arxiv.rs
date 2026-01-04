@@ -31,9 +31,7 @@ impl ArxivClient {
 
     /// Fetch a single paper by arXiv ID
     pub async fn fetch_by_id(&self, arxiv_id: &str) -> AppResult<ArxivPaper> {
-        let query = QueryParams::id(arxiv_id);
-
-        let papers = ArXiv::from_args(query).max_results(1).query().await;
+        let papers = ArXiv::from_id_list(vec![arxiv_id]).query().await;
 
         papers
             .into_iter()

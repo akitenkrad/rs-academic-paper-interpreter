@@ -287,13 +287,16 @@ impl AcademicPaper {
             .map(|name| Author::from_arxiv_name(name))
             .collect();
 
+        // Extract clean arXiv ID from URL (e.g., "http://arxiv.org/abs/1706.03762v7" -> "1706.03762")
+        let arxiv_id = Self::extract_arxiv_id(&paper.id);
+
         Self {
             arxiv_paper: Some(paper.clone()),
-            arxiv_id: paper.id.clone(),
+            arxiv_id: arxiv_id.clone(),
             title: paper.title.clone(),
             abstract_text: paper.abstract_text.clone(),
             authors,
-            url: format!("https://arxiv.org/abs/{}", paper.id),
+            url: format!("https://arxiv.org/abs/{}", arxiv_id),
             primary_category: paper.primary_category.clone(),
             categories: paper.categories.clone(),
             journal: if paper.journal_ref.is_empty() {
@@ -522,6 +525,30 @@ impl AcademicPaper {
         self.extracted_text = Some(text);
         self.updated_at = Local::now();
     }
+
+    /// Extract clean arXiv ID from various formats
+    ///
+    /// Handles:
+    /// - Full URL: "http://arxiv.org/abs/1706.03762v7" -> "1706.03762"
+    /// - With version: "1706.03762v7" -> "1706.03762"
+    /// - Clean ID: "1706.03762" -> "1706.03762"
+    fn extract_arxiv_id(raw_id: &str) -> String {
+        let id = raw_id
+            // Remove URL prefix
+            .trim_start_matches("http://arxiv.org/abs/")
+            .trim_start_matches("https://arxiv.org/abs/")
+            // Remove trailing whitespace
+            .trim();
+
+        // Remove version suffix (e.g., "v7")
+        if let Some(pos) = id.rfind('v') {
+            if id[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
+                return id[..pos].to_string();
+            }
+        }
+
+        id.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -568,5 +595,38 @@ mod tests {
         let citation = paper.to_citation();
         assert!(citation.contains("Vaswani"));
         assert!(citation.contains("Attention Is All You Need"));
+    }
+
+    #[test]
+    fn test_extract_arxiv_id() {
+        // Full URL with version
+        assert_eq!(
+            AcademicPaper::extract_arxiv_id("http://arxiv.org/abs/1706.03762v7"),
+            "1706.03762"
+        );
+
+        // HTTPS URL with version
+        assert_eq!(
+            AcademicPaper::extract_arxiv_id("https://arxiv.org/abs/2301.00001v2"),
+            "2301.00001"
+        );
+
+        // ID with version (no URL)
+        assert_eq!(
+            AcademicPaper::extract_arxiv_id("1706.03762v7"),
+            "1706.03762"
+        );
+
+        // Clean ID (no version)
+        assert_eq!(
+            AcademicPaper::extract_arxiv_id("1706.03762"),
+            "1706.03762"
+        );
+
+        // Old-style arXiv ID
+        assert_eq!(
+            AcademicPaper::extract_arxiv_id("cs.CL/0001001v1"),
+            "cs.CL/0001001"
+        );
     }
 }
