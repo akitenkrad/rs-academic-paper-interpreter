@@ -72,13 +72,25 @@ impl PromptTemplates {
     "summary": "論文の2〜3段落のサマリー",
     "background_and_purpose": "研究の背景、動機、目的",
     "methodology": "技術的アプローチ、使用された手法と技術",
-    "dataset": "使用されたデータソースとデータセット（記載がある場合、なければ「記載なし」）",
+    "datasets": [
+        {{
+            "name": "データセット名（例: ImageNet, COCO, SQuAD）",
+            "url": "データセットにアクセスできるURL（不明な場合は空文字）",
+            "paper_title": "データセットを提案した元論文のタイトル（不明な場合は空文字）",
+            "paper_url": "元論文のURL（不明な場合は空文字）",
+            "paper_authors": "元論文の著者（不明な場合は空文字）",
+            "description": "データセットの簡単な説明（不明な場合は空文字）",
+            "domain": "分野（例: Computer Vision, NLP, Speech）",
+            "size": "サイズ情報（例: 1.2M images, 100K samples、不明な場合は空文字）"
+        }}
+    ],
     "results": "主要な発見と実験結果",
     "advantages_limitations_and_future_work": "長所、短所、今後の方向性",
     "key_contributions": ["貢献1", "貢献2", ...],
     "tasks": ["研究分野1", "研究分野2", ...]
 }}
 
+datasetsは論文で使用されているすべてのデータセットのリストです。データセットが使用されていない場合や記載がない場合は空の配列[]を返してください。
 すべてのフィールドを埋めてください。アブストラクトに情報がない場合は、合理的な推測を行うか「記載なし」と示してください。"#
         )
     }

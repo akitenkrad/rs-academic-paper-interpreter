@@ -35,8 +35,14 @@ pub struct Config {
     /// OpenAI API key
     pub openai_api_key: Option<String>,
 
+    /// OpenAI model (default: gpt-4o)
+    pub openai_model: Option<String>,
+
     /// Anthropic API key
     pub anthropic_api_key: Option<String>,
+
+    /// Anthropic model (default: claude-sonnet-4-20250514)
+    pub anthropic_model: Option<String>,
 
     /// Ollama base URL (default: http://localhost:11434)
     pub ollama_base_url: Option<String>,
@@ -62,7 +68,9 @@ impl Default for Config {
         Self {
             semantic_scholar_api_key: None,
             openai_api_key: None,
+            openai_model: None,
             anthropic_api_key: None,
+            anthropic_model: None,
             ollama_base_url: None,
             ollama_model: None,
             default_llm_provider: LlmProviderType::default(),
@@ -84,7 +92,9 @@ impl Config {
         Ok(Self {
             semantic_scholar_api_key: std::env::var("SEMANTIC_SCHOLAR_API_KEY").ok(),
             openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
+            openai_model: std::env::var("OPENAI_MODEL").ok(),
             anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
+            anthropic_model: std::env::var("ANTHROPIC_MODEL").ok(),
             ollama_base_url: std::env::var("OLLAMA_BASE_URL").ok(),
             ollama_model: std::env::var("OLLAMA_MODEL").ok(),
             default_llm_provider: Self::parse_provider_from_env()?,

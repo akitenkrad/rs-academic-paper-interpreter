@@ -9,7 +9,13 @@ use async_trait::async_trait;
 ///
 /// Uses the anthropic-tools crate for API communication.
 /// API key is loaded from the ANTHROPIC_API_KEY environment variable.
-pub struct AnthropicProvider;
+/// Model can be configured via the ANTHROPIC_MODEL environment variable.
+pub struct AnthropicProvider {
+    /// Default model to use (from ANTHROPIC_MODEL env var or fallback)
+    default_model: String,
+}
+
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-20250514";
 
 impl AnthropicProvider {
     /// Create a new Anthropic provider
@@ -18,16 +24,33 @@ impl AnthropicProvider {
     /// the actual key is read from the ANTHROPIC_API_KEY environment variable
     /// by the underlying anthropic-tools crate.
     pub fn new(_api_key: impl Into<String>) -> Self {
-        Self
+        Self {
+            default_model: DEFAULT_ANTHROPIC_MODEL.to_string(),
+        }
     }
 
-    /// Create from environment variable ANTHROPIC_API_KEY
+    /// Create a new Anthropic provider with a custom model
+    pub fn with_model(model: impl Into<String>) -> Self {
+        Self {
+            default_model: model.into(),
+        }
+    }
+
+    /// Create from environment variables
+    ///
+    /// Reads ANTHROPIC_API_KEY (required) and ANTHROPIC_MODEL (optional, defaults to claude-sonnet-4-20250514)
     pub fn from_env() -> AppResult<Self> {
         // Verify the environment variable is set
         std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
             AppError::ConfigError("ANTHROPIC_API_KEY environment variable not set".to_string())
         })?;
-        Ok(Self)
+
+        let model =
+            std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
+
+        Ok(Self {
+            default_model: model,
+        })
     }
 }
 
@@ -38,7 +61,7 @@ impl LlmProvider for AnthropicProvider {
     }
 
     fn default_model(&self) -> &str {
-        "claude-sonnet-4-20250514"
+        &self.default_model
     }
 
     async fn complete(&self, messages: Vec<Message>, config: &LlmConfig) -> AppResult<String> {
@@ -102,5 +125,8 @@ mod tests {
     fn test_default_model() {
         let provider = AnthropicProvider::new("test-key");
         assert!(provider.default_model().contains("claude"));
+
+        let provider = AnthropicProvider::with_model("claude-3-opus-20240229");
+        assert_eq!(provider.default_model(), "claude-3-opus-20240229");
     }
 }

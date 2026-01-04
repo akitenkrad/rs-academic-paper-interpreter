@@ -57,14 +57,54 @@ impl Author {
     }
 }
 
+/// Information about a dataset used in research
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DatasetInfo {
+    /// Name of the dataset (e.g., "ImageNet", "COCO", "SQuAD")
+    pub name: String,
+
+    /// URL to access or download the dataset (empty if not available)
+    pub url: String,
+
+    /// Title of the original paper that introduced this dataset (empty if not available)
+    pub paper_title: String,
+
+    /// URL of the original paper (empty if not available)
+    pub paper_url: String,
+
+    /// Authors of the original paper (empty if not available)
+    pub paper_authors: String,
+
+    /// Brief description of the dataset (empty if not available)
+    pub description: String,
+
+    /// Domain or field of the dataset (e.g., "Computer Vision", "NLP")
+    pub domain: String,
+
+    /// Size information (e.g., "1.2M images", "100K samples")
+    pub size: String,
+}
+
+impl DatasetInfo {
+    /// Create a new dataset info with just the name
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Check if this dataset info has meaningful content
+    pub fn is_valid(&self) -> bool {
+        !self.name.is_empty() && self.name != "記載なし" && self.name != "N/A"
+    }
+}
+
 /// LLM-generated analysis of a paper
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PaperAnalysis {
     /// Concise summary of the paper (2-3 paragraphs)
     pub summary: String,
-
-    /// Japanese translation of the summary
-    pub summary_ja: Option<String>,
 
     /// Research background and purpose
     pub background_and_purpose: String,
@@ -73,7 +113,7 @@ pub struct PaperAnalysis {
     pub methodology: String,
 
     /// Datasets used in the research
-    pub dataset: String,
+    pub datasets: Vec<DatasetInfo>,
 
     /// Key results and findings
     pub results: String,
@@ -628,5 +668,55 @@ mod tests {
             AcademicPaper::extract_arxiv_id("cs.CL/0001001v1"),
             "cs.CL/0001001"
         );
+    }
+
+    #[test]
+    fn test_dataset_info_serialization() {
+        let dataset = DatasetInfo {
+            name: "ImageNet".to_string(),
+            url: "https://image-net.org".to_string(),
+            paper_title: "ImageNet: A Large-Scale Hierarchical Image Database".to_string(),
+            paper_url: "https://arxiv.org/abs/1409.0575".to_string(),
+            paper_authors: "Deng et al.".to_string(),
+            description: "Large-scale image dataset".to_string(),
+            domain: "Computer Vision".to_string(),
+            size: "14M images".to_string(),
+        };
+
+        let json = serde_json::to_string_pretty(&dataset).unwrap();
+        assert!(json.contains("\"name\": \"ImageNet\""));
+        assert!(json.contains("\"url\": \"https://image-net.org\""));
+        assert!(json.contains("\"paper_title\":"));
+        assert!(json.contains("\"domain\": \"Computer Vision\""));
+    }
+
+    #[test]
+    fn test_paper_analysis_with_datasets_serialization() {
+        let analysis = PaperAnalysis {
+            summary: "Test summary".to_string(),
+            methodology: "Test method".to_string(),
+            datasets: vec![
+                DatasetInfo {
+                    name: "COCO".to_string(),
+                    url: "https://cocodataset.org".to_string(),
+                    domain: "Computer Vision".to_string(),
+                    ..Default::default()
+                },
+                DatasetInfo {
+                    name: "SQuAD".to_string(),
+                    url: "https://rajpurkar.github.io/SQuAD-explorer/".to_string(),
+                    domain: "NLP".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string_pretty(&analysis).unwrap();
+        // Verify datasets is an array, not a string
+        assert!(json.contains("\"datasets\": ["));
+        assert!(json.contains("\"name\": \"COCO\""));
+        assert!(json.contains("\"name\": \"SQuAD\""));
+        assert!(!json.contains("\"datasets\": \""));  // Should NOT be a string
     }
 }

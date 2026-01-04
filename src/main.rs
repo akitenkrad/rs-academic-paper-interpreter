@@ -9,6 +9,7 @@ use academic_paper_interpreter::{
     AcademicPaper, LlmProvider, PaperAnalyzer, PaperClient, SearchParams,
 };
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
 
 /// Academic Paper Interpreter - Search, fetch, and analyze academic papers with LLM
 #[derive(Parser)]
@@ -101,6 +102,10 @@ enum OutputFormat {
     Text,
     /// JSON format
     Json,
+    /// XML format
+    Xml,
+    /// TOML format
+    Toml,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -189,14 +194,31 @@ async fn cmd_search(
     let result = client.search(params).await?;
 
     match output {
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&result.papers)?);
-        }
         OutputFormat::Text => {
             println!("Found {} papers:\n", result.papers.len());
             for (i, paper) in result.papers.iter().enumerate() {
                 print_paper_summary(i + 1, paper);
             }
+        }
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&result.papers)?);
+        }
+        OutputFormat::Xml => {
+            let wrapper = PapersWrapper {
+                papers: &result.papers,
+            };
+            println!("{}", to_xml(&wrapper)?);
+        }
+        OutputFormat::Toml => {
+            // TOML requires a table at root, so wrap in a struct
+            #[derive(Serialize)]
+            struct TomlPapers<'a> {
+                papers: &'a [AcademicPaper],
+            }
+            let wrapper = TomlPapers {
+                papers: &result.papers,
+            };
+            println!("{}", to_toml(&wrapper)?);
         }
     }
 
@@ -231,11 +253,17 @@ async fn cmd_fetch(
     let paper = &result.papers[0];
 
     match output {
+        OutputFormat::Text => {
+            print_paper_detail(paper);
+        }
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(paper)?);
         }
-        OutputFormat::Text => {
-            print_paper_detail(paper);
+        OutputFormat::Xml => {
+            println!("{}", to_xml(paper)?);
+        }
+        OutputFormat::Toml => {
+            println!("{}", to_toml(paper)?);
         }
     }
 
@@ -302,11 +330,17 @@ async fn cmd_analyze(
     }
 
     match output {
+        OutputFormat::Text => {
+            print_paper_with_analysis(&paper);
+        }
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&paper)?);
         }
-        OutputFormat::Text => {
-            print_paper_with_analysis(&paper);
+        OutputFormat::Xml => {
+            println!("{}", to_xml(&paper)?);
+        }
+        OutputFormat::Toml => {
+            println!("{}", to_toml(&paper)?);
         }
     }
 
@@ -400,12 +434,6 @@ fn print_paper_with_analysis(paper: &AcademicPaper) {
         println!("{}", analysis.summary);
         println!();
 
-        if let Some(summary_ja) = &analysis.summary_ja {
-            println!("Summary (Japanese):");
-            println!("{}", summary_ja);
-            println!();
-        }
-
         println!("Background and Purpose:");
         println!("{}", analysis.background_and_purpose);
         println!();
@@ -414,9 +442,32 @@ fn print_paper_with_analysis(paper: &AcademicPaper) {
         println!("{}", analysis.methodology);
         println!();
 
-        if !analysis.dataset.is_empty() {
-            println!("Dataset:");
-            println!("{}", analysis.dataset);
+        if !analysis.datasets.is_empty() {
+            println!("Datasets:");
+            for dataset in &analysis.datasets {
+                println!("  - {}", dataset.name);
+                if !dataset.url.is_empty() {
+                    println!("    URL: {}", dataset.url);
+                }
+                if !dataset.description.is_empty() {
+                    println!("    Description: {}", dataset.description);
+                }
+                if !dataset.domain.is_empty() {
+                    println!("    Domain: {}", dataset.domain);
+                }
+                if !dataset.size.is_empty() {
+                    println!("    Size: {}", dataset.size);
+                }
+                if !dataset.paper_title.is_empty() {
+                    println!("    Original Paper: {}", dataset.paper_title);
+                    if !dataset.paper_authors.is_empty() {
+                        println!("    Paper Authors: {}", dataset.paper_authors);
+                    }
+                    if !dataset.paper_url.is_empty() {
+                        println!("    Paper URL: {}", dataset.paper_url);
+                    }
+                }
+            }
             println!();
         }
 
@@ -448,4 +499,29 @@ fn print_paper_with_analysis(paper: &AcademicPaper) {
             analysis.analyzed_at.format("%Y-%m-%d %H:%M:%S")
         );
     }
+}
+
+// =============================================================================
+// Output formatters
+// =============================================================================
+
+/// Serialize data to XML format
+fn to_xml<T: Serialize>(data: &T) -> anyhow::Result<String> {
+    let mut buffer = String::new();
+    buffer.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    let xml_content = quick_xml::se::to_string(data)?;
+    buffer.push_str(&xml_content);
+    Ok(buffer)
+}
+
+/// Serialize data to TOML format
+fn to_toml<T: Serialize>(data: &T) -> anyhow::Result<String> {
+    Ok(toml::to_string_pretty(data)?)
+}
+
+/// Wrapper for multiple papers (for XML root element)
+#[derive(Serialize)]
+struct PapersWrapper<'a> {
+    #[serde(rename = "paper")]
+    papers: &'a [AcademicPaper],
 }

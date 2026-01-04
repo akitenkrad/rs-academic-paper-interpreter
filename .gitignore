@@ -25,3 +25,4 @@ Cargo.lock
 .env
 /.claude
 /thoughts
+/CONTEXT.md

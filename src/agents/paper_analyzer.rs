@@ -2,11 +2,46 @@
 
 use super::prompts::PromptTemplates;
 use super::traits::{AnalysisAgent, LlmConfig, LlmProvider, Message};
-use crate::models::{AcademicPaper, PaperAnalysis};
+use crate::models::{AcademicPaper, DatasetInfo, PaperAnalysis};
 use crate::shared::errors::AppResult;
 use async_trait::async_trait;
 use chrono::Local;
 use serde::Deserialize;
+
+/// Response structure for dataset information from LLM
+#[derive(Debug, Deserialize)]
+struct DatasetResponse {
+    name: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    paper_title: String,
+    #[serde(default)]
+    paper_url: String,
+    #[serde(default)]
+    paper_authors: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    domain: String,
+    #[serde(default)]
+    size: String,
+}
+
+impl From<DatasetResponse> for DatasetInfo {
+    fn from(resp: DatasetResponse) -> Self {
+        Self {
+            name: resp.name,
+            url: resp.url,
+            paper_title: resp.paper_title,
+            paper_url: resp.paper_url,
+            paper_authors: resp.paper_authors,
+            description: resp.description,
+            domain: resp.domain,
+            size: resp.size,
+        }
+    }
+}
 
 /// Response structure for full paper analysis
 #[derive(Debug, Deserialize)]
@@ -14,7 +49,8 @@ struct AnalysisResponse {
     summary: String,
     background_and_purpose: String,
     methodology: String,
-    dataset: String,
+    #[serde(default)]
+    datasets: Vec<DatasetResponse>,
     results: String,
     advantages_limitations_and_future_work: String,
     key_contributions: Vec<String>,
@@ -87,10 +123,14 @@ impl<P: LlmProvider> AnalysisAgent for PaperAnalyzer<P> {
 
         Ok(PaperAnalysis {
             summary: response.summary,
-            summary_ja: None,
             background_and_purpose: response.background_and_purpose,
             methodology: response.methodology,
-            dataset: response.dataset,
+            datasets: response
+                .datasets
+                .into_iter()
+                .map(DatasetInfo::from)
+                .filter(|d| d.is_valid())
+                .collect(),
             results: response.results,
             advantages_limitations_and_future_work: response.advantages_limitations_and_future_work,
             key_contributions: response.key_contributions,
@@ -205,7 +245,18 @@ mod tests {
                 "summary": "Test summary",
                 "background_and_purpose": "Test background",
                 "methodology": "Test methodology",
-                "dataset": "Test dataset",
+                "datasets": [
+                    {
+                        "name": "Test Dataset",
+                        "url": "https://example.com/dataset",
+                        "paper_title": "Test Paper",
+                        "paper_url": "https://example.com/paper",
+                        "paper_authors": "Test Author",
+                        "description": "A test dataset",
+                        "domain": "NLP",
+                        "size": "10K samples"
+                    }
+                ],
                 "results": "Test results",
                 "advantages_limitations_and_future_work": "Test advantages",
                 "key_contributions": ["contribution 1"],

@@ -44,7 +44,7 @@ pub mod shared;
 
 // Re-export main types at crate root
 pub use client::{PaperClient, PaperSource, SearchParams, SearchResult};
-pub use models::{AcademicPaper, Author, PaperAnalysis, PaperSection, PaperText};
+pub use models::{AcademicPaper, Author, DatasetInfo, PaperAnalysis, PaperSection, PaperText};
 pub use pdf::{ExtractionConfig, PdfExtractor};
 pub use shared::config::Config;
 pub use shared::errors::{AppError, AppResult};
@@ -55,8 +55,8 @@ pub use agents::{AnalysisAgent, LlmConfig, LlmProvider, Message, MessageRole, Pa
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use super::{
-        AcademicPaper, AnalysisAgent, AppError, AppResult, Author, ExtractionConfig, LlmProvider,
-        PaperAnalysis, PaperAnalyzer, PaperClient, PaperSection, PaperText, PdfExtractor,
-        SearchParams, SearchResult,
+        AcademicPaper, AnalysisAgent, AppError, AppResult, Author, DatasetInfo, ExtractionConfig,
+        LlmProvider, PaperAnalysis, PaperAnalyzer, PaperClient, PaperSection, PaperText,
+        PdfExtractor, SearchParams, SearchResult,
     };
 }

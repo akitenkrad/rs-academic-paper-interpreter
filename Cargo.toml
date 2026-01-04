@@ -31,6 +31,7 @@ clap = { version = "4.5", features = ["derive"] }
 derive-new = "0.7.0"
 indicatif = "0.18.3"
 openai-tools = { git = "https://github.com/akitenkrad/rs-openai-tools.git" }
+quick-xml = { version = "0.38.4", features = ["serialize"] }
 regex = "1.12.2"
 reqwest = { version = "0.13.1", features = ["json"] }
 rsrpp = { git = "https://github.com/akitenkrad/rsrpp.git" }
@@ -41,6 +42,7 @@ strum = { version = "0.27.2", features = ["derive"] }
 test-log = { version = "0.2.19", features = ["trace"] }
 thiserror = "2.0.17"
 tokio = { version = "1.49.0", features = ["full"] }
+toml = "0.9"
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 
@@ -54,6 +56,7 @@ clap = { workspace = true }
 derive-new = { workspace = true }
 indicatif = { workspace = true }
 openai-tools = { workspace = true }
+quick-xml = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 rsrpp = { workspace = true }
@@ -64,5 +67,6 @@ strum = { version = "0.27.2", features = ["derive"] }
 test-log = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
