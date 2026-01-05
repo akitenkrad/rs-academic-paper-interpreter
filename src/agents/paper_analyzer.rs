@@ -2,6 +2,7 @@
 
 use super::prompts::PromptTemplates;
 use super::traits::{AnalysisAgent, LlmConfig, LlmProvider, Message};
+use crate::export::{KeywordsData, ResearchContext, TechnicalTerm};
 use crate::models::{AcademicPaper, DatasetInfo, PaperAnalysis};
 use crate::shared::errors::AppResult;
 use async_trait::async_trait;
@@ -57,6 +58,32 @@ struct AnalysisResponse {
     tasks: Vec<String>,
 }
 
+/// Response structure for keyword extraction
+#[derive(Debug, Deserialize)]
+struct KeywordsResponse {
+    keywords: Vec<String>,
+    topics: Vec<String>,
+    technical_terms: Vec<TechnicalTermResponse>,
+    methods: Vec<String>,
+    datasets: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TechnicalTermResponse {
+    term: String,
+    definition: Option<String>,
+}
+
+/// Response structure for research context
+#[derive(Debug, Deserialize)]
+struct ResearchContextResponse {
+    primary_field: String,
+    sub_fields: Vec<String>,
+    research_type: String,
+    positioning: String,
+    related_directions: Vec<String>,
+}
+
 /// Paper analysis agent that uses LLM for analysis
 pub struct PaperAnalyzer<P: LlmProvider> {
     provider: P,
@@ -104,6 +131,63 @@ impl<P: LlmProvider> PaperAnalyzer<P> {
         let analysis = self.analyze(paper).await?;
         paper.set_analysis(analysis);
         Ok(())
+    }
+
+    /// Extract keywords, topics, and technical terms from a paper
+    pub async fn extract_keywords(&self, paper: &AcademicPaper) -> AppResult<KeywordsData> {
+        let messages = vec![
+            Message::system(PromptTemplates::system_prompt()),
+            Message::user(PromptTemplates::keyword_extraction_prompt(
+                &paper.title,
+                &paper.abstract_text,
+            )),
+        ];
+
+        let config = self.effective_config();
+        let response: KeywordsResponse = self.provider.complete_json(messages, &config).await?;
+
+        Ok(KeywordsData {
+            keywords: response.keywords,
+            topics: response.topics,
+            technical_terms: response
+                .technical_terms
+                .into_iter()
+                .map(|t| TechnicalTerm {
+                    term: t.term,
+                    definition: t.definition,
+                })
+                .collect(),
+            methods: response.methods,
+            datasets: response.datasets,
+        })
+    }
+
+    /// Extract research context and positioning for a paper
+    pub async fn extract_research_context(
+        &self,
+        paper: &AcademicPaper,
+        keywords: &[String],
+    ) -> AppResult<ResearchContext> {
+        let messages = vec![
+            Message::system(PromptTemplates::system_prompt()),
+            Message::user(PromptTemplates::research_context_prompt(
+                &paper.title,
+                &paper.abstract_text,
+                keywords,
+            )),
+        ];
+
+        let config = self.effective_config();
+        let response: ResearchContextResponse =
+            self.provider.complete_json(messages, &config).await?;
+
+        Ok(ResearchContext {
+            primary_field: response.primary_field,
+            sub_fields: response.sub_fields,
+            research_type: response.research_type,
+            positioning: response.positioning,
+            related_directions: response.related_directions,
+        })
     }
 }
 

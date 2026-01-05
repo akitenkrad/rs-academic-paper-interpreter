@@ -38,12 +38,18 @@
 
 pub mod agents;
 pub mod client;
+pub mod export;
 pub mod models;
 pub mod pdf;
 pub mod shared;
 
 // Re-export main types at crate root
 pub use client::{PaperClient, PaperSource, SearchParams, SearchResult};
+pub use export::{
+    CitationData, CitationStatistics, EXPORT_SCHEMA_VERSION, ExportMetadata, ExportOptions,
+    ExportedPaper, KeywordsData, PaperSummary, ReferenceData, ReferenceStatistics, ResearchContext,
+    TechnicalTerm,
+};
 pub use models::{AcademicPaper, Author, DatasetInfo, PaperAnalysis, PaperSection, PaperText};
 pub use pdf::{ExtractionConfig, PdfExtractor};
 pub use shared::config::Config;

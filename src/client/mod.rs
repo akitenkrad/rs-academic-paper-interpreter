@@ -14,6 +14,7 @@ pub use semantic::SemanticScholarClient;
 use crate::models::AcademicPaper;
 use crate::pdf::PdfExtractor;
 use crate::shared::errors::{AppError, AppResult};
+use strsim::normalized_levenshtein;
 
 /// Unified client for paper search and retrieval across multiple sources
 pub struct PaperClient {
@@ -227,6 +228,66 @@ impl PaperClient {
         // Could be enhanced with fuzzy matching
         title1 == title2
     }
+
+    /// Find the best matching paper by title using Levenshtein distance
+    ///
+    /// Returns the index of the best matching paper and its normalized distance (0.0 = exact match, 1.0 = completely different).
+    /// Returns None if papers is empty.
+    pub fn find_best_match_by_title(
+        &self,
+        papers: &[AcademicPaper],
+        query: &str,
+    ) -> Option<(usize, f64)> {
+        if papers.is_empty() {
+            return None;
+        }
+
+        let normalized_query = self.normalize_title(query);
+
+        papers
+            .iter()
+            .enumerate()
+            .map(|(idx, paper)| {
+                let normalized_title = self.normalize_title(&paper.title);
+                // normalized_levenshtein returns similarity (0.0 = different, 1.0 = same)
+                // We convert to distance (0.0 = same, 1.0 = different)
+                let similarity = normalized_levenshtein(&normalized_query, &normalized_title);
+                let distance = 1.0 - similarity;
+                (idx, distance)
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    }
+
+    /// Search papers by title and return the best match
+    ///
+    /// Searches both arXiv and Semantic Scholar, then finds the best matching paper
+    /// based on Levenshtein distance. Returns an error if no paper matches within the threshold.
+    pub async fn search_by_title_fuzzy(
+        &self,
+        title: &str,
+        threshold: f64,
+    ) -> AppResult<AcademicPaper> {
+        // Search using the title
+        let params = SearchParams::new()
+            .with_title(title.to_string())
+            .with_max_results(20);
+
+        let result = self.search(params).await?;
+
+        // Find best match
+        let (idx, distance) = self
+            .find_best_match_by_title(&result.papers, title)
+            .ok_or_else(|| AppError::PaperNotFound("No papers found".to_string()))?;
+
+        if distance > threshold {
+            return Err(AppError::PaperNotFound(format!(
+                "No paper found matching '{}' (best match distance: {:.2}, threshold: {:.2})",
+                title, distance, threshold
+            )));
+        }
+
+        Ok(result.papers.into_iter().nth(idx).unwrap())
+    }
 }
 
 #[cfg(test)]
@@ -246,5 +307,36 @@ mod tests {
         let client = PaperClient::new();
         assert!(client.titles_match("attention is all you need", "attention is all you need"));
         assert!(!client.titles_match("attention is all you need", "bert pretraining"));
+    }
+
+    #[test]
+    fn test_find_best_match_by_title() {
+        let client = PaperClient::new();
+
+        let mut paper1 = AcademicPaper::new();
+        paper1.title = "Attention Is All You Need".to_string();
+
+        let mut paper2 = AcademicPaper::new();
+        paper2.title = "BERT: Pre-training of Deep Bidirectional Transformers".to_string();
+
+        let papers = vec![paper1, paper2];
+
+        // Exact match
+        let result = client.find_best_match_by_title(&papers, "Attention Is All You Need");
+        assert!(result.is_some());
+        let (idx, distance) = result.unwrap();
+        assert_eq!(idx, 0);
+        assert!(distance < 0.01); // Should be very close to 0
+
+        // Close match with typo
+        let result = client.find_best_match_by_title(&papers, "Atention Is All You Need");
+        assert!(result.is_some());
+        let (idx, distance) = result.unwrap();
+        assert_eq!(idx, 0);
+        assert!(distance < 0.1); // Should be close
+
+        // Empty papers
+        let result = client.find_best_match_by_title(&[], "test");
+        assert!(result.is_none());
     }
 }

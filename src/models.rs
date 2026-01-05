@@ -252,9 +252,6 @@ pub struct AcademicPaper {
     /// Japanese translation of abstract
     pub abstract_text_ja: String,
 
-    /// Full paper text (if available)
-    pub text: String,
-
     /// Paper URL
     pub url: String,
 
@@ -658,10 +655,7 @@ mod tests {
         );
 
         // Clean ID (no version)
-        assert_eq!(
-            AcademicPaper::extract_arxiv_id("1706.03762"),
-            "1706.03762"
-        );
+        assert_eq!(AcademicPaper::extract_arxiv_id("1706.03762"), "1706.03762");
 
         // Old-style arXiv ID
         assert_eq!(

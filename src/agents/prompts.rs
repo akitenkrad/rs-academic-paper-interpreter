@@ -147,6 +147,70 @@ datasetsは論文で使用されているすべてのデータセットのリス
 ["分野/タスク1", "分野/タスク2", ...]"#
         )
     }
+
+    /// キーワード・トピック抽出用プロンプト
+    pub fn keyword_extraction_prompt(title: &str, abstract_text: &str) -> String {
+        format!(
+            r#"以下の学術論文からキーワード、トピック、技術用語を抽出してください。
+
+タイトル: {title}
+
+アブストラクト: {abstract_text}
+
+以下の構造のJSONオブジェクトとして出力してください:
+{{
+    "keywords": ["主要キーワード1", "主要キーワード2", ...],
+    "topics": ["研究トピック1", "研究トピック2", ...],
+    "technical_terms": [
+        {{"term": "技術用語1", "definition": "簡潔な定義"}},
+        {{"term": "技術用語2", "definition": "簡潔な定義"}}
+    ],
+    "methods": ["手法1", "手法2", ...],
+    "datasets": ["データセット1", "データセット2", ...]
+}}
+
+ガイドライン:
+- keywords: 論文の主要な検索キーワード（5〜10個）
+- topics: 研究分野・トピック（3〜5個）
+- technical_terms: 重要な技術用語と定義（5個程度）
+- methods: 使用されている手法・技術（該当するものすべて）
+- datasets: 言及されているデータセット（該当するものすべて、なければ空配列）"#
+        )
+    }
+
+    /// 研究コンテキスト生成用プロンプト
+    pub fn research_context_prompt(
+        title: &str,
+        abstract_text: &str,
+        keywords: &[String],
+    ) -> String {
+        let keywords_str = keywords.join(", ");
+        format!(
+            r#"以下の学術論文の研究分野における位置づけを分析してください。
+
+タイトル: {title}
+
+アブストラクト: {abstract_text}
+
+キーワード: {keywords_str}
+
+以下の構造のJSONオブジェクトとして出力してください:
+{{
+    "primary_field": "主要研究分野",
+    "sub_fields": ["サブ分野1", "サブ分野2", ...],
+    "research_type": "研究タイプ（以下から選択: empirical, theoretical, survey, methodology, application）",
+    "positioning": "この研究の分野における位置づけの説明（2〜3文）",
+    "related_directions": ["関連研究方向1", "関連研究方向2", ...]
+}}
+
+ガイドライン:
+- primary_field: 最も関連性の高い主要研究分野
+- sub_fields: より具体的なサブ分野（2〜4個）
+- research_type: empirical（実験的）, theoretical（理論的）, survey（調査）, methodology（方法論提案）, application（応用）のいずれか
+- positioning: この研究が分野にどのように貢献し、どのような問題を解決しようとしているか
+- related_directions: この研究から発展しうる関連研究方向（3〜5個）"#
+        )
+    }
 }
 
 #[cfg(test)]

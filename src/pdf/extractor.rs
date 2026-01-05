@@ -3,9 +3,11 @@
 use crate::models::{AcademicPaper, PaperSection, PaperText};
 use crate::shared::errors::{AppError, AppResult};
 use chrono::Local;
+use futures::FutureExt;
 use rsrpp::config::ParserConfig;
 use rsrpp::models::Section;
 use rsrpp::parser::parse;
+use std::panic::AssertUnwindSafe;
 
 /// Configuration for PDF extraction
 #[derive(Debug, Clone)]
@@ -68,9 +70,34 @@ impl PdfExtractor {
 
         let mut parser_config = ParserConfig::new();
 
-        let pages = parse(url, &mut parser_config, self.config.verbose)
-            .await
-            .map_err(|e| AppError::PdfExtractionError(format!("PDF parse failed: {}", e)))?;
+        // Wrap parse call in catch_unwind to handle panics from rsrpp gracefully
+        let parse_result = AssertUnwindSafe(parse(url, &mut parser_config, self.config.verbose))
+            .catch_unwind()
+            .await;
+
+        let pages = match parse_result {
+            Ok(Ok(pages)) => pages,
+            Ok(Err(e)) => {
+                return Err(AppError::PdfExtractionError(format!(
+                    "PDF parse failed: {}",
+                    e
+                )));
+            }
+            Err(panic_info) => {
+                let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic during PDF extraction".to_string()
+                };
+                tracing::error!("PDF extraction panicked: {}", panic_msg);
+                return Err(AppError::PdfExtractionError(format!(
+                    "PDF extraction panicked: {}",
+                    panic_msg
+                )));
+            }
+        };
 
         let sections = Section::from_pages(&pages);
 

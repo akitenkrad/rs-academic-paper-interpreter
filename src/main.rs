@@ -6,10 +6,13 @@ use academic_paper_interpreter::agents::providers::{
 use academic_paper_interpreter::shared::config::LlmProviderType;
 use academic_paper_interpreter::shared::logger::init_logger;
 use academic_paper_interpreter::{
-    AcademicPaper, LlmProvider, PaperAnalyzer, PaperClient, SearchParams,
+    AcademicPaper, CitationData, CitationStatistics, ExportOptions, ExportedPaper, KeywordsData,
+    LlmProvider, PaperAnalyzer, PaperClient, PaperSummary, ReferenceData, ReferenceStatistics,
+    ResearchContext, SearchParams,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+use std::path::PathBuf;
 
 /// Academic Paper Interpreter - Search, fetch, and analyze academic papers with LLM
 #[derive(Parser)]
@@ -94,6 +97,65 @@ enum Commands {
         #[arg(short, long, value_enum, default_value = "text")]
         output: OutputFormat,
     },
+
+    /// Export comprehensive paper data as JSON for AI/LLM consumption
+    Export {
+        /// arXiv paper ID (e.g., 2106.09685)
+        #[arg(long)]
+        arxiv: Option<String>,
+
+        /// Semantic Scholar paper ID
+        #[arg(long)]
+        ss: Option<String>,
+
+        /// Search by paper title (uses fuzzy matching with Levenshtein distance)
+        #[arg(short = 't', long)]
+        title: Option<String>,
+
+        /// Similarity threshold for title matching (0.0 = exact match, 1.0 = no match required)
+        #[arg(long, default_value = "0.3")]
+        threshold: f64,
+
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Run LLM analysis on the paper
+        #[arg(short, long)]
+        analyze: bool,
+
+        /// Extract full text from PDF
+        #[arg(short, long)]
+        extract_text: bool,
+
+        /// Include papers that cite this paper
+        #[arg(short = 'c', long)]
+        include_citations: bool,
+
+        /// Include papers referenced by this paper
+        #[arg(short = 'r', long)]
+        include_references: bool,
+
+        /// Maximum number of citations/references to fetch
+        #[arg(long, default_value = "50")]
+        max_citations: usize,
+
+        /// LLM provider (openai, anthropic, ollama)
+        #[arg(short, long, value_enum)]
+        provider: Option<ProviderArg>,
+
+        /// Model name for LLM analysis
+        #[arg(short, long)]
+        model: Option<String>,
+
+        /// Extract keywords and topics via LLM
+        #[arg(short = 'k', long)]
+        extract_keywords: bool,
+
+        /// Compact JSON output (no pretty printing)
+        #[arg(long)]
+        compact: bool,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -153,6 +215,40 @@ async fn main() -> anyhow::Result<()> {
             output,
         } => {
             cmd_analyze(arxiv, ss, provider, model, output).await?;
+        }
+        Commands::Export {
+            arxiv,
+            ss,
+            title,
+            threshold,
+            output,
+            analyze,
+            extract_text,
+            include_citations,
+            include_references,
+            max_citations,
+            provider,
+            model,
+            extract_keywords,
+            compact,
+        } => {
+            cmd_export(
+                arxiv,
+                ss,
+                title,
+                threshold,
+                output,
+                analyze,
+                extract_text,
+                include_citations,
+                include_references,
+                max_citations,
+                provider,
+                model,
+                extract_keywords,
+                compact,
+            )
+            .await?;
         }
     }
 
@@ -524,4 +620,283 @@ fn to_toml<T: Serialize>(data: &T) -> anyhow::Result<String> {
 struct PapersWrapper<'a> {
     #[serde(rename = "paper")]
     papers: &'a [AcademicPaper],
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn cmd_export(
+    arxiv: Option<String>,
+    ss: Option<String>,
+    title: Option<String>,
+    threshold: f64,
+    output_path: Option<PathBuf>,
+    analyze: bool,
+    extract_text: bool,
+    include_citations: bool,
+    include_references: bool,
+    max_citations: usize,
+    provider_arg: Option<ProviderArg>,
+    model: Option<String>,
+    extract_keywords: bool,
+    compact: bool,
+) -> anyhow::Result<()> {
+    if arxiv.is_none() && ss.is_none() && title.is_none() {
+        anyhow::bail!("Either --arxiv, --ss, or --title is required");
+    }
+
+    // Build export options
+    let mut export_options = ExportOptions {
+        analyzed: analyze,
+        text_extracted: extract_text,
+        citations_included: include_citations,
+        references_included: include_references,
+        keywords_extracted: extract_keywords,
+        max_citations,
+        llm_provider: None,
+        llm_model: None,
+    };
+
+    // Fetch paper
+    let client = PaperClient::new();
+
+    let mut paper = if let Some(ref title_query) = title {
+        // Search by title using fuzzy matching
+        eprintln!("Searching for paper: \"{}\" (threshold: {:.2})", title_query, threshold);
+        let found_paper = client.search_by_title_fuzzy(title_query, threshold).await?;
+        eprintln!("Found: \"{}\"", found_paper.title);
+        found_paper
+    } else {
+        // Search by ID
+        let mut params = SearchParams::new();
+        if let Some(id) = &arxiv {
+            params = params.with_arxiv_id(id.clone());
+        }
+        if let Some(id) = &ss {
+            params = params.with_ss_id(id.clone());
+        }
+
+        let result = client.search(params).await?;
+
+        if result.papers.is_empty() {
+            anyhow::bail!("Paper not found");
+        }
+
+        result.papers.into_iter().next().unwrap()
+    };
+
+    let mut exported = ExportedPaper::new(paper.clone(), export_options.clone());
+
+    // Determine provider type for LLM operations
+    let provider_type = provider_arg.map(LlmProviderType::from).unwrap_or_else(|| {
+        std::env::var("LLM_PROVIDER")
+            .ok()
+            .and_then(|s| match s.as_str() {
+                "openai" => Some(LlmProviderType::OpenAi),
+                "anthropic" => Some(LlmProviderType::Anthropic),
+                "ollama" => Some(LlmProviderType::Ollama),
+                _ => None,
+            })
+            .unwrap_or(LlmProviderType::OpenAi)
+    });
+
+    // Extract text if requested
+    if extract_text && !paper.has_extracted_text() {
+        match client.extract_text(&mut paper).await {
+            Ok(_) => {}
+            Err(e) => {
+                exported.add_warning(format!("Text extraction failed: {}", e));
+            }
+        }
+    }
+
+    // Run LLM analysis if requested
+    if analyze && !paper.is_analyzed() {
+        let analyze_result = match provider_type {
+            LlmProviderType::OpenAi => {
+                let provider = OpenAiProvider::from_env()?;
+                export_options.llm_provider = Some("openai".to_string());
+                analyze_with_provider(provider, &mut paper, model.as_deref()).await
+            }
+            LlmProviderType::Anthropic => {
+                let provider = AnthropicProvider::from_env()?;
+                export_options.llm_provider = Some("anthropic".to_string());
+                analyze_with_provider(provider, &mut paper, model.as_deref()).await
+            }
+            LlmProviderType::Ollama => {
+                let provider = OllamaProvider::from_env()?;
+                export_options.llm_provider = Some("ollama".to_string());
+                analyze_with_provider(provider, &mut paper, model.as_deref()).await
+            }
+        };
+
+        if let Err(e) = analyze_result {
+            exported.add_warning(format!("LLM analysis failed: {}", e));
+        }
+        export_options.llm_model = model.clone();
+    }
+
+    // Fetch citations and references in parallel
+    let (citations_result, references_result) = if include_citations || include_references {
+        let citations_future = async {
+            if include_citations {
+                fetch_citations(&client, &paper, max_citations).await
+            } else {
+                Ok(None)
+            }
+        };
+
+        let references_future = async {
+            if include_references {
+                fetch_references(&client, &paper, max_citations).await
+            } else {
+                Ok(None)
+            }
+        };
+
+        tokio::join!(citations_future, references_future)
+    } else {
+        (Ok(None), Ok(None))
+    };
+
+    // Handle citations result
+    match citations_result {
+        Ok(Some(citations)) => {
+            exported.citations = Some(citations);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            exported.add_warning(format!("Citations fetch failed: {}", e));
+        }
+    }
+
+    // Handle references result
+    match references_result {
+        Ok(Some(references)) => {
+            exported.references = Some(references);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            exported.add_warning(format!("References fetch failed: {}", e));
+        }
+    }
+
+    // Extract keywords if requested
+    if extract_keywords {
+        let keywords_result = match provider_type {
+            LlmProviderType::OpenAi => {
+                let provider = OpenAiProvider::from_env()?;
+                extract_keywords_with_provider(provider, &paper, model.as_deref()).await
+            }
+            LlmProviderType::Anthropic => {
+                let provider = AnthropicProvider::from_env()?;
+                extract_keywords_with_provider(provider, &paper, model.as_deref()).await
+            }
+            LlmProviderType::Ollama => {
+                let provider = OllamaProvider::from_env()?;
+                extract_keywords_with_provider(provider, &paper, model.as_deref()).await
+            }
+        };
+
+        match keywords_result {
+            Ok((keywords, context)) => {
+                exported.keywords = Some(keywords);
+                exported.research_context = Some(context);
+            }
+            Err(e) => {
+                exported.add_warning(format!("Keyword extraction failed: {}", e));
+            }
+        }
+    }
+
+    // Update paper in exported
+    exported.paper = paper;
+    exported.export_metadata.options = export_options;
+
+    // Output JSON
+    let json_output = if compact {
+        serde_json::to_string(&exported)?
+    } else {
+        serde_json::to_string_pretty(&exported)?
+    };
+
+    match output_path {
+        Some(path) => {
+            std::fs::write(&path, &json_output)?;
+            eprintln!("Exported to: {}", path.display());
+        }
+        None => {
+            println!("{}", json_output);
+        }
+    }
+
+    Ok(())
+}
+
+async fn fetch_citations(
+    client: &PaperClient,
+    paper: &AcademicPaper,
+    max_citations: usize,
+) -> anyhow::Result<Option<CitationData>> {
+    let citations = client.fetch_citations(paper).await?;
+    let limited: Vec<_> = citations.into_iter().take(max_citations).collect();
+
+    if limited.is_empty() {
+        return Ok(None);
+    }
+
+    let summaries: Vec<PaperSummary> = limited
+        .iter()
+        .map(PaperSummary::from_academic_paper)
+        .collect();
+    let statistics = CitationStatistics::from_papers(&summaries);
+
+    Ok(Some(CitationData {
+        total_count: paper.citations_count,
+        fetched_count: summaries.len(),
+        papers: summaries,
+        statistics,
+    }))
+}
+
+async fn fetch_references(
+    client: &PaperClient,
+    paper: &AcademicPaper,
+    max_citations: usize,
+) -> anyhow::Result<Option<ReferenceData>> {
+    let references = client.fetch_references(paper).await?;
+    let limited: Vec<_> = references.into_iter().take(max_citations).collect();
+
+    if limited.is_empty() {
+        return Ok(None);
+    }
+
+    let summaries: Vec<PaperSummary> = limited
+        .iter()
+        .map(PaperSummary::from_academic_paper)
+        .collect();
+    let statistics = ReferenceStatistics::from_papers(&summaries);
+
+    Ok(Some(ReferenceData {
+        total_count: paper.references_count,
+        fetched_count: summaries.len(),
+        papers: summaries,
+        statistics,
+    }))
+}
+
+async fn extract_keywords_with_provider<P: LlmProvider>(
+    provider: P,
+    paper: &AcademicPaper,
+    model: Option<&str>,
+) -> anyhow::Result<(KeywordsData, ResearchContext)> {
+    let mut analyzer = PaperAnalyzer::new(provider);
+    if let Some(m) = model {
+        analyzer = analyzer.with_model(m);
+    }
+
+    let keywords = analyzer.extract_keywords(paper).await?;
+    let context = analyzer
+        .extract_research_context(paper, &keywords.keywords)
+        .await?;
+
+    Ok((keywords, context))
 }
