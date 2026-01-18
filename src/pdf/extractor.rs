@@ -1,6 +1,6 @@
 //! PDF text extraction implementation using rsrpp
 
-use crate::models::{AcademicPaper, PaperSection, PaperText};
+use crate::models::{AcademicPaper, PaperSection, PaperText, SectionImportance};
 use crate::shared::errors::{AppError, AppResult};
 use chrono::Local;
 use futures::FutureExt;
@@ -149,6 +149,7 @@ impl PdfExtractor {
                 index: s.index,
                 title: s.title.clone(),
                 content: s.get_text(),
+                importance: SectionImportance::from_title(&s.title),
             })
             .collect();
 
@@ -217,11 +218,13 @@ mod tests {
                 index: 0,
                 title: "Abstract".to_string(),
                 content: "This is the abstract.".to_string(),
+                importance: SectionImportance::Critical,
             },
             PaperSection {
                 index: 1,
                 title: "Introduction".to_string(),
                 content: "This is the introduction.".to_string(),
+                importance: SectionImportance::High,
             },
         ];
         let plain = extractor.build_plain_text(&sections);
@@ -237,6 +240,7 @@ mod tests {
             index: 0,
             title: "Abstract".to_string(),
             content: "This is the abstract.".to_string(),
+            importance: SectionImportance::Critical,
         }];
         let md = extractor.build_markdown(&sections);
         assert!(md.contains("## Abstract"));

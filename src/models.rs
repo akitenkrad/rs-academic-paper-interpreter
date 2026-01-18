@@ -144,6 +144,72 @@ impl PaperAnalysis {
     }
 }
 
+/// Importance level of a paper section
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SectionImportance {
+    /// Critical sections: Abstract, Method, Methodology, Experiments
+    Critical,
+    /// High importance: Introduction, Results, Discussion
+    High,
+    /// Medium importance: Related Work, Background, Conclusion
+    #[default]
+    Medium,
+    /// Reference sections: Appendix, References, Acknowledgements
+    Reference,
+}
+
+impl SectionImportance {
+    /// Get string representation for XML output
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Critical => "critical",
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Reference => "reference",
+        }
+    }
+
+    /// Determine importance from section title
+    pub fn from_title(title: &str) -> Self {
+        let title_lower = title.to_lowercase();
+
+        // Critical sections
+        if title_lower.contains("abstract")
+            || title_lower.contains("method")
+            || title_lower.contains("experiment")
+        {
+            return Self::Critical;
+        }
+
+        // High importance sections
+        if title_lower.contains("introduction")
+            || title_lower.contains("result")
+            || title_lower.contains("discussion")
+        {
+            return Self::High;
+        }
+
+        // Reference sections
+        if title_lower.contains("appendix")
+            || title_lower.contains("reference")
+            || title_lower.contains("acknowledgement")
+            || title_lower.contains("bibliography")
+        {
+            return Self::Reference;
+        }
+
+        // Medium importance (default) for: Related Work, Background, Conclusion, etc.
+        Self::Medium
+    }
+}
+
+impl std::fmt::Display for SectionImportance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// Section of an academic paper with extracted text
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PaperSection {
@@ -155,6 +221,9 @@ pub struct PaperSection {
 
     /// Section content
     pub content: String,
+
+    /// Section importance level
+    pub importance: SectionImportance,
 }
 
 /// Extracted text from a paper PDF in multiple formats
@@ -218,6 +287,42 @@ impl PaperText {
             ))
         })
     }
+
+    /// Convert to XML format with section importance attributes
+    ///
+    /// Output format:
+    /// ```xml
+    /// <paper>
+    /// <section name="Abstract" importance="critical">
+    /// [content]
+    /// </section>
+    /// ...
+    /// </paper>
+    /// ```
+    pub fn to_xml(&self) -> String {
+        let mut xml = String::from("<paper>\n");
+
+        for section in &self.sections {
+            xml.push_str(&format!(
+                "<section name=\"{}\" importance=\"{}\">\n{}\n</section>\n\n",
+                escape_xml(&section.title),
+                section.importance.as_str(),
+                escape_xml(&section.content)
+            ));
+        }
+
+        xml.push_str("</paper>");
+        xml
+    }
+}
+
+/// Escape special XML characters
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// Unified academic paper representation
@@ -429,12 +534,13 @@ impl AcademicPaper {
         }
 
         // Update bibtex if not already set
-        if self.bibtex.is_empty() {
-            if let Some(cs) = &paper.citation_styles {
-                if let Some(bibtex) = &cs.bibtex {
-                    self.bibtex = bibtex.clone();
-                }
-            }
+        if self.bibtex.is_empty()
+            && let Some(bibtex) = paper
+                .citation_styles
+                .as_ref()
+                .and_then(|cs| cs.bibtex.as_ref())
+        {
+            self.bibtex = bibtex.clone();
         }
 
         // Update open access info
@@ -483,14 +589,14 @@ impl AcademicPaper {
             journal_name = "arXiv".to_string();
         }
 
-        if let Some(ss_paper) = &self.ss_paper {
-            if let Some(journal) = &ss_paper.journal {
-                if let Some(name) = &journal.name {
-                    if !name.is_empty() {
-                        journal_name = name.clone();
-                    }
-                }
-            }
+        if let Some(name) = self
+            .ss_paper
+            .as_ref()
+            .and_then(|p| p.journal.as_ref())
+            .and_then(|j| j.name.as_ref())
+            .filter(|n| !n.is_empty())
+        {
+            journal_name = name.clone();
         }
 
         if journal_name.is_empty() {
@@ -578,10 +684,10 @@ impl AcademicPaper {
             .trim();
 
         // Remove version suffix (e.g., "v7")
-        if let Some(pos) = id.rfind('v') {
-            if id[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
-                return id[..pos].to_string();
-            }
+        if let Some(pos) = id.rfind('v')
+            && id[pos + 1..].chars().all(|c| c.is_ascii_digit())
+        {
+            return id[..pos].to_string();
         }
 
         id.to_string()
@@ -712,5 +818,144 @@ mod tests {
         assert!(json.contains("\"name\": \"COCO\""));
         assert!(json.contains("\"name\": \"SQuAD\""));
         assert!(!json.contains("\"datasets\": \""));  // Should NOT be a string
+    }
+
+    #[test]
+    fn test_section_importance_from_title() {
+        // Critical sections
+        assert_eq!(
+            SectionImportance::from_title("Abstract"),
+            SectionImportance::Critical
+        );
+        assert_eq!(
+            SectionImportance::from_title("Methodology"),
+            SectionImportance::Critical
+        );
+        assert_eq!(
+            SectionImportance::from_title("Methods"),
+            SectionImportance::Critical
+        );
+        assert_eq!(
+            SectionImportance::from_title("Experiments"),
+            SectionImportance::Critical
+        );
+        assert_eq!(
+            SectionImportance::from_title("Experimental Setup"),
+            SectionImportance::Critical
+        );
+
+        // High importance sections
+        assert_eq!(
+            SectionImportance::from_title("Introduction"),
+            SectionImportance::High
+        );
+        assert_eq!(
+            SectionImportance::from_title("Results"),
+            SectionImportance::High
+        );
+        assert_eq!(
+            SectionImportance::from_title("Discussion"),
+            SectionImportance::High
+        );
+
+        // Reference sections
+        assert_eq!(
+            SectionImportance::from_title("Appendix"),
+            SectionImportance::Reference
+        );
+        assert_eq!(
+            SectionImportance::from_title("References"),
+            SectionImportance::Reference
+        );
+        assert_eq!(
+            SectionImportance::from_title("Acknowledgements"),
+            SectionImportance::Reference
+        );
+
+        // Medium importance (default)
+        assert_eq!(
+            SectionImportance::from_title("Related Work"),
+            SectionImportance::Medium
+        );
+        assert_eq!(
+            SectionImportance::from_title("Conclusion"),
+            SectionImportance::Medium
+        );
+        assert_eq!(
+            SectionImportance::from_title("Background"),
+            SectionImportance::Medium
+        );
+    }
+
+    #[test]
+    fn test_section_importance_as_str() {
+        assert_eq!(SectionImportance::Critical.as_str(), "critical");
+        assert_eq!(SectionImportance::High.as_str(), "high");
+        assert_eq!(SectionImportance::Medium.as_str(), "medium");
+        assert_eq!(SectionImportance::Reference.as_str(), "reference");
+    }
+
+    #[test]
+    fn test_paper_text_to_xml() {
+        let paper_text = PaperText {
+            plain_text: "test".to_string(),
+            sections: vec![
+                PaperSection {
+                    index: 0,
+                    title: "Abstract".to_string(),
+                    content: "This is the abstract.".to_string(),
+                    importance: SectionImportance::Critical,
+                },
+                PaperSection {
+                    index: 1,
+                    title: "Introduction".to_string(),
+                    content: "This is the introduction.".to_string(),
+                    importance: SectionImportance::High,
+                },
+            ],
+            markdown: "## Abstract\n\nThis is the abstract.".to_string(),
+            extracted_at: Local::now(),
+            source_url: "https://example.com/paper.pdf".to_string(),
+        };
+
+        let xml = paper_text.to_xml();
+
+        // Check root element
+        assert!(xml.starts_with("<paper>"));
+        assert!(xml.ends_with("</paper>"));
+
+        // Check section elements
+        assert!(xml.contains("<section name=\"Abstract\" importance=\"critical\">"));
+        assert!(xml.contains("<section name=\"Introduction\" importance=\"high\">"));
+        assert!(xml.contains("This is the abstract."));
+        assert!(xml.contains("This is the introduction."));
+        assert!(xml.contains("</section>"));
+    }
+
+    #[test]
+    fn test_xml_escape() {
+        let paper_text = PaperText {
+            plain_text: "test".to_string(),
+            sections: vec![PaperSection {
+                index: 0,
+                title: "Test & <Special> 'Characters' \"Section\"".to_string(),
+                content: "Content with <html> & special chars".to_string(),
+                importance: SectionImportance::Medium,
+            }],
+            markdown: "".to_string(),
+            extracted_at: Local::now(),
+            source_url: "".to_string(),
+        };
+
+        let xml = paper_text.to_xml();
+
+        // Check XML escaping
+        assert!(xml.contains("&amp;"));
+        assert!(xml.contains("&lt;"));
+        assert!(xml.contains("&gt;"));
+        assert!(xml.contains("&quot;"));
+        assert!(xml.contains("&apos;"));
+        assert!(!xml.contains(" & "));
+        assert!(!xml.contains("<html>"));
     }
 }
