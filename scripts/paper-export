@@ -1,0 +1,368 @@
+#!/usr/bin/env bash
+# paper-export - Academic paper export command wrapper
+#
+# USAGE:
+#   paper-export [OPTIONS] <SEARCH_QUERY>
+#   paper-export --title "Paper Title"
+#   paper-export --arxiv 2401.15884
+#   paper-export --ss <semantic-scholar-id>
+#
+# DESCRIPTION:
+#   Searches for academic papers and exports comprehensive data including
+#   LLM analysis, citations, references, and keywords in JSON or XML format.
+#
+# EXAMPLES:
+#   # Export by title with all features
+#   paper-export --title "Corrective Retrieval Augmented Generation"
+#
+#   # Export by arXiv ID with minimal options
+#   paper-export --arxiv 2401.15884 --no-analysis
+#
+#   # Export to JSON with custom output file
+#   paper-export --title "Attention is All You Need" -f json -o attention.json
+#
+#   # Use Anthropic instead of OpenAI
+#   paper-export --title "BERT" -p anthropic
+#
+# INSTALLATION:
+#   1. Build the binary:
+#      cargo make release-build
+#   2. Symlink this script to a directory in your PATH:
+#      ln -sf "$(pwd)/scripts/paper-export" /usr/local/bin/paper-export
+#   3. Or add the scripts directory to your PATH:
+#      export PATH="$PATH:/path/to/rs-academic-paper-interpreter/scripts"
+
+set -euo pipefail
+
+# Script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Binary path (check multiple locations)
+if [[ -x "$PROJECT_ROOT/target/release/academic-paper-interpreter" ]]; then
+    BINARY="$PROJECT_ROOT/target/release/academic-paper-interpreter"
+elif [[ -x "$PROJECT_ROOT/target/debug/academic-paper-interpreter" ]]; then
+    BINARY="$PROJECT_ROOT/target/debug/academic-paper-interpreter"
+elif command -v academic-paper-interpreter &> /dev/null; then
+    BINARY="academic-paper-interpreter"
+else
+    echo "Error: academic-paper-interpreter binary not found." >&2
+    echo "Please build the project: cargo make release-build" >&2
+    exit 1
+fi
+
+# Default values
+TITLE=""
+ARXIV_ID=""
+SS_ID=""
+PROVIDER="openai"
+FORMAT="xml"
+OUTPUT=""
+THRESHOLD="0.3"
+MAX_CITATIONS="50"
+LOG_LEVEL="warn"
+
+# Feature flags (all enabled by default)
+DO_ANALYZE=true
+DO_EXTRACT_TEXT=true
+DO_CITATIONS=true
+DO_REFERENCES=true
+DO_KEYWORDS=true
+DO_WITH_SCHEMA=true
+DO_COMPACT=false
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+print_usage() {
+    cat <<EOF
+paper-export - Export comprehensive academic paper data for AI/LLM consumption
+
+USAGE:
+    paper-export [OPTIONS] --title <TITLE>
+    paper-export [OPTIONS] --arxiv <ARXIV_ID>
+    paper-export [OPTIONS] --ss <SS_ID>
+
+SEARCH OPTIONS:
+    --title, -t <TITLE>       Search by paper title (fuzzy matching)
+    --arxiv <ID>              Fetch by arXiv ID (e.g., 2401.15884)
+    --ss <ID>                 Fetch by Semantic Scholar ID
+    --threshold <FLOAT>       Title similarity threshold (default: 0.3, lower = stricter)
+
+OUTPUT OPTIONS:
+    -o, --output <FILE>       Output file path (default: stdout)
+    -f, --format <FORMAT>     Output format: json, xml (default: xml)
+    --compact                 Compact output (no pretty printing, JSON only)
+    --with-schema             Include XML Schema (default for XML)
+    --no-schema               Don't include XML Schema
+
+FEATURE OPTIONS:
+    -a, --analyze             Enable LLM analysis (default: enabled)
+    --no-analyze              Disable LLM analysis
+    -e, --extract-text        Enable PDF text extraction (default: enabled)
+    --no-extract              Disable PDF text extraction
+    -c, --citations           Include citing papers (default: enabled)
+    --no-citations            Don't include citing papers
+    -r, --references          Include referenced papers (default: enabled)
+    --no-references           Don't include referenced papers
+    -k, --keywords            Extract keywords via LLM (default: enabled)
+    --no-keywords             Don't extract keywords
+    --max-citations <N>       Max citations/references to fetch (default: 50)
+
+PROVIDER OPTIONS:
+    -p, --provider <NAME>     LLM provider: openai, anthropic, ollama (default: openai)
+    -m, --model <MODEL>       Specific model name (uses provider default if not set)
+
+OTHER OPTIONS:
+    --log-level <LEVEL>       Log level: trace, debug, info, warn, error (default: warn)
+    -h, --help                Show this help message
+    --version                 Show version
+
+ENVIRONMENT VARIABLES:
+    OPENAI_API_KEY            Required for OpenAI provider
+    ANTHROPIC_API_KEY         Required for Anthropic provider
+    SEMANTIC_SCHOLAR_API_KEY  Optional: improves API rate limits
+
+EXAMPLES:
+    # Full export with all features (recommended)
+    paper-export --title "Corrective Retrieval Augmented Generation" -o crag.xml
+
+    # Quick export without LLM features
+    paper-export --arxiv 1706.03762 --no-analyze --no-keywords -o transformer.json -f json
+
+    # Export with Anthropic Claude
+    paper-export --title "BERT" -p anthropic -o bert.xml
+
+    # Minimal export (paper metadata only)
+    paper-export --arxiv 2401.15884 --no-analyze --no-extract --no-citations --no-references --no-keywords
+
+EOF
+}
+
+print_version() {
+    "$BINARY" --version
+}
+
+# Parse arguments
+MODEL=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -t|--title)
+            TITLE="$2"
+            shift 2
+            ;;
+        --arxiv)
+            ARXIV_ID="$2"
+            shift 2
+            ;;
+        --ss)
+            SS_ID="$2"
+            shift 2
+            ;;
+        --threshold)
+            THRESHOLD="$2"
+            shift 2
+            ;;
+        -o|--output)
+            OUTPUT="$2"
+            shift 2
+            ;;
+        -f|--format)
+            FORMAT="$2"
+            shift 2
+            ;;
+        --compact)
+            DO_COMPACT=true
+            shift
+            ;;
+        --with-schema)
+            DO_WITH_SCHEMA=true
+            shift
+            ;;
+        --no-schema)
+            DO_WITH_SCHEMA=false
+            shift
+            ;;
+        -a|--analyze)
+            DO_ANALYZE=true
+            shift
+            ;;
+        --no-analyze|--no-analysis)
+            DO_ANALYZE=false
+            shift
+            ;;
+        -e|--extract-text)
+            DO_EXTRACT_TEXT=true
+            shift
+            ;;
+        --no-extract|--no-extract-text)
+            DO_EXTRACT_TEXT=false
+            shift
+            ;;
+        -c|--citations)
+            DO_CITATIONS=true
+            shift
+            ;;
+        --no-citations)
+            DO_CITATIONS=false
+            shift
+            ;;
+        -r|--references)
+            DO_REFERENCES=true
+            shift
+            ;;
+        --no-references)
+            DO_REFERENCES=false
+            shift
+            ;;
+        -k|--keywords)
+            DO_KEYWORDS=true
+            shift
+            ;;
+        --no-keywords)
+            DO_KEYWORDS=false
+            shift
+            ;;
+        --max-citations)
+            MAX_CITATIONS="$2"
+            shift 2
+            ;;
+        -p|--provider)
+            PROVIDER="$2"
+            shift 2
+            ;;
+        -m|--model)
+            MODEL="$2"
+            shift 2
+            ;;
+        --log-level)
+            LOG_LEVEL="$2"
+            shift 2
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        --version)
+            print_version
+            exit 0
+            ;;
+        -*)
+            echo -e "${RED}Error: Unknown option: $1${NC}" >&2
+            echo "Use --help for usage information." >&2
+            exit 1
+            ;;
+        *)
+            # If no search option provided and this looks like a title, use it
+            if [[ -z "$TITLE" && -z "$ARXIV_ID" && -z "$SS_ID" ]]; then
+                TITLE="$1"
+            else
+                echo -e "${RED}Error: Unexpected argument: $1${NC}" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Validate: at least one search parameter required
+if [[ -z "$TITLE" && -z "$ARXIV_ID" && -z "$SS_ID" ]]; then
+    echo -e "${RED}Error: Either --title, --arxiv, or --ss is required.${NC}" >&2
+    echo "Use --help for usage information." >&2
+    exit 1
+fi
+
+# Validate provider
+case $PROVIDER in
+    openai|anthropic|ollama)
+        ;;
+    *)
+        echo -e "${RED}Error: Invalid provider: $PROVIDER${NC}" >&2
+        echo "Valid providers: openai, anthropic, ollama" >&2
+        exit 1
+        ;;
+esac
+
+# Validate format
+case $FORMAT in
+    json|xml)
+        ;;
+    *)
+        echo -e "${RED}Error: Invalid format: $FORMAT${NC}" >&2
+        echo "Valid formats: json, xml" >&2
+        exit 1
+        ;;
+esac
+
+# Check API keys
+if [[ "$DO_ANALYZE" == true || "$DO_KEYWORDS" == true ]]; then
+    case $PROVIDER in
+        openai)
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+                echo -e "${YELLOW}Warning: OPENAI_API_KEY not set. LLM features may fail.${NC}" >&2
+            fi
+            ;;
+        anthropic)
+            if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+                echo -e "${YELLOW}Warning: ANTHROPIC_API_KEY not set. LLM features may fail.${NC}" >&2
+            fi
+            ;;
+    esac
+fi
+
+# Build command arguments
+CMD_ARGS=("export")
+CMD_ARGS+=("--log-level" "$LOG_LEVEL")
+
+# Search parameter
+if [[ -n "$TITLE" ]]; then
+    CMD_ARGS+=("--title" "$TITLE")
+    CMD_ARGS+=("--threshold" "$THRESHOLD")
+elif [[ -n "$ARXIV_ID" ]]; then
+    CMD_ARGS+=("--arxiv" "$ARXIV_ID")
+elif [[ -n "$SS_ID" ]]; then
+    CMD_ARGS+=("--ss" "$SS_ID")
+fi
+
+# Output options
+if [[ -n "$OUTPUT" ]]; then
+    CMD_ARGS+=("--output" "$OUTPUT")
+fi
+CMD_ARGS+=("--format" "$FORMAT")
+if [[ "$DO_COMPACT" == true ]]; then
+    CMD_ARGS+=("--compact")
+fi
+if [[ "$FORMAT" == "xml" && "$DO_WITH_SCHEMA" == true ]]; then
+    CMD_ARGS+=("--with-schema")
+fi
+
+# Feature flags
+if [[ "$DO_ANALYZE" == true ]]; then
+    CMD_ARGS+=("--analyze")
+fi
+if [[ "$DO_EXTRACT_TEXT" == true ]]; then
+    CMD_ARGS+=("--extract-text")
+fi
+if [[ "$DO_CITATIONS" == true ]]; then
+    CMD_ARGS+=("--include-citations")
+fi
+if [[ "$DO_REFERENCES" == true ]]; then
+    CMD_ARGS+=("--include-references")
+fi
+if [[ "$DO_KEYWORDS" == true ]]; then
+    CMD_ARGS+=("--extract-keywords")
+fi
+CMD_ARGS+=("--max-citations" "$MAX_CITATIONS")
+
+# Provider options
+CMD_ARGS+=("--provider" "$PROVIDER")
+if [[ -n "$MODEL" ]]; then
+    CMD_ARGS+=("--model" "$MODEL")
+fi
+
+# Execute
+echo -e "${GREEN}Executing:${NC} $BINARY ${CMD_ARGS[*]}" >&2
+exec "$BINARY" "${CMD_ARGS[@]}"
