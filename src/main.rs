@@ -8,11 +8,51 @@ use academic_paper_interpreter::shared::logger::init_logger;
 use academic_paper_interpreter::{
     AcademicPaper, CitationData, CitationStatistics, ExportOptions, ExportedPaper, KeywordsData,
     LlmProvider, PaperAnalyzer, PaperClient, PaperSummary, ReferenceData, ReferenceStatistics,
-    ResearchContext, SearchParams,
+    ResearchContext, SearchParams, get_xml_schema,
 };
+use chrono::Local;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::path::PathBuf;
+
+/// Generate timestamp string in yyyyMMddHHmmSS format
+fn generate_timestamp() -> String {
+    Local::now().format("%Y%m%d%H%M%S").to_string()
+}
+
+/// Generate output file path with timestamp
+/// - If user_path is None: returns "paper_yyyyMMddHHmmSS.{ext}"
+/// - If user_path is Some: inserts "_yyyyMMddHHmmSS" before the extension
+fn generate_output_path(user_path: Option<PathBuf>, format: ExportFormat) -> PathBuf {
+    let timestamp = generate_timestamp();
+    let ext = match format {
+        ExportFormat::Json => "json",
+        ExportFormat::Xml => "xml",
+    };
+
+    match user_path {
+        None => {
+            // Default: paper_yyyyMMddHHmmSS.{ext}
+            PathBuf::from(format!("paper_{}.{}", timestamp, ext))
+        }
+        Some(path) => {
+            // User specified: insert _yyyyMMddHHmmSS before extension
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("paper");
+            let user_ext = path.extension().and_then(|e| e.to_str()).unwrap_or(ext);
+            let new_filename = format!("{}_{}.{}", stem, timestamp, user_ext);
+
+            if let Some(parent) = path.parent() {
+                if parent.as_os_str().is_empty() {
+                    PathBuf::from(new_filename)
+                } else {
+                    parent.join(new_filename)
+                }
+            } else {
+                PathBuf::from(new_filename)
+            }
+        }
+    }
+}
 
 /// Academic Paper Interpreter - Search, fetch, and analyze academic papers with LLM
 #[derive(Parser)]
@@ -116,7 +156,7 @@ enum Commands {
         #[arg(long, default_value = "0.3")]
         threshold: f64,
 
-        /// Output file path (default: stdout)
+        /// Output file path (default: paper_yyyyMMddHHmmSS.{ext}, timestamp is always appended)
         #[arg(short, long)]
         output: Option<PathBuf>,
 
@@ -155,6 +195,14 @@ enum Commands {
         /// Compact JSON output (no pretty printing)
         #[arg(long)]
         compact: bool,
+
+        /// Output format (json or xml)
+        #[arg(short = 'f', long, value_enum, default_value = "json")]
+        format: ExportFormat,
+
+        /// Output XML Schema (.xsd) alongside the XML file (only for XML format)
+        #[arg(long)]
+        with_schema: bool,
     },
 }
 
@@ -168,6 +216,14 @@ enum OutputFormat {
     Xml,
     /// TOML format
     Toml,
+}
+
+#[derive(Clone, Copy, ValueEnum, Debug)]
+enum ExportFormat {
+    /// JSON format
+    Json,
+    /// XML format with structured sections
+    Xml,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -231,6 +287,8 @@ async fn main() -> anyhow::Result<()> {
             model,
             extract_keywords,
             compact,
+            format,
+            with_schema,
         } => {
             cmd_export(
                 arxiv,
@@ -247,6 +305,8 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 extract_keywords,
                 compact,
+                format,
+                with_schema,
             )
             .await?;
         }
@@ -638,6 +698,8 @@ async fn cmd_export(
     model: Option<String>,
     extract_keywords: bool,
     compact: bool,
+    format: ExportFormat,
+    with_schema: bool,
 ) -> anyhow::Result<()> {
     if arxiv.is_none() && ss.is_none() && title.is_none() {
         anyhow::bail!("Either --arxiv, --ss, or --title is required");
@@ -658,12 +720,28 @@ async fn cmd_export(
     // Fetch paper
     let client = PaperClient::new();
 
-    let mut paper = if let Some(ref title_query) = title {
+    let (mut paper, mut paper_not_found_warning) = if let Some(ref title_query) = title {
         // Search by title using fuzzy matching
-        eprintln!("Searching for paper: \"{}\" (threshold: {:.2})", title_query, threshold);
-        let found_paper = client.search_by_title_fuzzy(title_query, threshold).await?;
-        eprintln!("Found: \"{}\"", found_paper.title);
-        found_paper
+        eprintln!(
+            "Searching for paper: \"{}\" (threshold: {:.2})",
+            title_query, threshold
+        );
+        match client.search_by_title_fuzzy(title_query, threshold).await {
+            Ok(found_paper) => {
+                eprintln!("Found: \"{}\"", found_paper.title);
+                (found_paper, None)
+            }
+            Err(e) => {
+                eprintln!("Warning: Paper not found by title, continuing with empty metadata");
+                // Create empty paper with title set
+                let mut empty_paper = AcademicPaper::new();
+                empty_paper.title = title_query.clone();
+                (
+                    empty_paper,
+                    Some(format!("Paper metadata not found: {}", e)),
+                )
+            }
+        }
     } else {
         // Search by ID
         let mut params = SearchParams::new();
@@ -674,16 +752,35 @@ async fn cmd_export(
             params = params.with_ss_id(id.clone());
         }
 
-        let result = client.search(params).await?;
-
-        if result.papers.is_empty() {
-            anyhow::bail!("Paper not found");
+        match client.search(params).await {
+            Ok(result) if !result.papers.is_empty() => {
+                (result.papers.into_iter().next().unwrap(), None)
+            }
+            Ok(_) | Err(_) => {
+                // Paper not found in any source - create empty paper with provided IDs
+                eprintln!("Warning: Paper metadata not found, continuing with provided IDs");
+                let mut empty_paper = AcademicPaper::new();
+                if let Some(id) = &arxiv {
+                    empty_paper.arxiv_id = id.clone();
+                    empty_paper.url = format!("https://arxiv.org/abs/{}", id);
+                }
+                if let Some(id) = &ss {
+                    empty_paper.ss_id = id.clone();
+                }
+                (
+                    empty_paper,
+                    Some("Paper metadata not found in arXiv or Semantic Scholar".to_string()),
+                )
+            }
         }
-
-        result.papers.into_iter().next().unwrap()
     };
 
     let mut exported = ExportedPaper::new(paper.clone(), export_options.clone());
+
+    // Add warning if paper metadata was not found
+    if let Some(warning) = paper_not_found_warning.take() {
+        exported.add_warning(warning);
+    }
 
     // Determine provider type for LLM operations
     let provider_type = provider_arg.map(LlmProviderType::from).unwrap_or_else(|| {
@@ -811,21 +908,29 @@ async fn cmd_export(
     exported.paper = paper;
     exported.export_metadata.options = export_options;
 
-    // Output JSON
-    let json_output = if compact {
-        serde_json::to_string(&exported)?
-    } else {
-        serde_json::to_string_pretty(&exported)?
+    // Output based on format
+    let output_content = match format {
+        ExportFormat::Json => {
+            if compact {
+                serde_json::to_string(&exported)?
+            } else {
+                serde_json::to_string_pretty(&exported)?
+            }
+        }
+        ExportFormat::Xml => exported.to_xml(),
     };
 
-    match output_path {
-        Some(path) => {
-            std::fs::write(&path, &json_output)?;
-            eprintln!("Exported to: {}", path.display());
-        }
-        None => {
-            println!("{}", json_output);
-        }
+    // Generate output path with timestamp
+    let final_output_path = generate_output_path(output_path, format);
+
+    std::fs::write(&final_output_path, &output_content)?;
+    eprintln!("Exported to: {}", final_output_path.display());
+
+    // Output XML Schema if requested (only for XML format)
+    if with_schema && matches!(format, ExportFormat::Xml) {
+        let schema_path = final_output_path.with_extension("xsd");
+        std::fs::write(&schema_path, get_xml_schema())?;
+        eprintln!("Schema exported to: {}", schema_path.display());
     }
 
     Ok(())
