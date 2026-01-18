@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 ///
 /// * `total` - The total number of steps for the progress bar.
 /// * `msg` - An optional message to display alongside the progress bar.
-///           Defaults to "Processing" if `None` is provided.
+///   Defaults to "Processing" if `None` is provided.
 ///
 /// # Returns
 ///
@@ -78,29 +78,36 @@ pub fn datetime_from_str(date_str: &str) -> DateTime<Local> {
     }
 
     let mut date_str = date_str.to_string();
-    if regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$")
+
+    // Check for complete format with timezone first
+    let has_timezone = regex::Regex::new(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{4}$")
+        .unwrap()
+        .is_match(&date_str);
+
+    if has_timezone {
+        // Already in the correct format, do nothing
+    } else if regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$")
         .unwrap()
         .is_match(&date_str)
     {
+        // Date only format: add time and timezone
         date_str.push_str(" 00:00:00+0000");
     } else if regex::Regex::new(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
         .unwrap()
         .is_match(&date_str)
     {
+        // Date and time without timezone: add timezone
         date_str.push_str("+0000");
-    } else if !date_str.ends_with('+') && !date_str.ends_with('-') {
-        date_str.push_str("+0000");
-    } else if regex::Regex::new(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\+\d{4}$")
-        .unwrap()
-        .is_match(&date_str)
-    {
-        // Already in the correct format
-    } else {
+    } else if date_str.ends_with('+') || date_str.ends_with('-') {
+        // Invalid format: ends with incomplete timezone
         eprintln!(
             "WARNING: Date string does not match expected formats: {}",
             date_str
         );
-        return Local.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap(); // Fallback to a default date
+        return Local.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap();
+    } else {
+        // Unknown format: try adding timezone as fallback
+        date_str.push_str("+0000");
     }
     match DateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S%z") {
         Ok(date) => date.with_timezone(&Local),

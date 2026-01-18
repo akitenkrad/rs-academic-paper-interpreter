@@ -23,11 +23,6 @@ impl OllamaProvider {
         }
     }
 
-    /// Create with default model (llama3.2)
-    pub fn default() -> Self {
-        Self::new("llama3.2")
-    }
-
     /// Create from environment variables
     pub fn from_env() -> AppResult<Self> {
         let base_url = std::env::var("OLLAMA_BASE_URL")
@@ -154,6 +149,13 @@ impl LlmProvider for OllamaProvider {
             .map_err(|e| AppError::LlmError(format!("Failed to parse response: {}", e)))?;
 
         Ok(chat_response.message.content)
+    }
+}
+
+impl Default for OllamaProvider {
+    /// Create with default model (llama3.2)
+    fn default() -> Self {
+        Self::new("llama3.2")
     }
 }
 

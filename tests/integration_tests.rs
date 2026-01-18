@@ -145,7 +145,7 @@ mod openai {
         assert!(
             translation
                 .chars()
-                .any(|c| c >= '\u{3040}' && c <= '\u{9FFF}'),
+                .any(|c| ('\u{3040}'..='\u{9FFF}').contains(&c)),
             "日本語文字が含まれていない: {}",
             translation
         );
@@ -253,7 +253,7 @@ mod anthropic {
         assert!(
             translation
                 .chars()
-                .any(|c| c >= '\u{3040}' && c <= '\u{9FFF}'),
+                .any(|c| ('\u{3040}'..='\u{9FFF}').contains(&c)),
             "日本語文字が含まれていない: {}",
             translation
         );
