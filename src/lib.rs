@@ -46,9 +46,9 @@ pub mod shared;
 // Re-export main types at crate root
 pub use client::{PaperClient, PaperSource, SearchParams, SearchResult};
 pub use export::{
-    CitationData, CitationStatistics, EXPORT_SCHEMA_VERSION, ExportMetadata, ExportOptions,
-    ExportedPaper, KeywordsData, PaperSummary, ReferenceData, ReferenceStatistics, ResearchContext,
-    TechnicalTerm,
+    CitationData, CitationStatistics, EXPORT_SCHEMA_VERSION, EXPORTED_PAPER_XSD, ExportMetadata,
+    ExportOptions, ExportedPaper, KeywordsData, PaperSummary, ReferenceData, ReferenceStatistics,
+    ResearchContext, TechnicalTerm, get_xml_schema,
 };
 pub use models::{AcademicPaper, Author, DatasetInfo, PaperAnalysis, PaperSection, PaperText};
 pub use pdf::{ExtractionConfig, PdfExtractor};
