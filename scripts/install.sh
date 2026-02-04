@@ -122,7 +122,7 @@ install_copy() {
     if [[ -e "$INSTALL_DIR/academic-paper-interpreter" ]]; then
         print_warning "Overwriting existing: academic-paper-interpreter"
     fi
-    cp -f "$binary" "$INSTALL_DIR/academic-paper-interpreter"
+    install -m 755 "$binary" "$INSTALL_DIR/academic-paper-interpreter"
     chmod +x "$INSTALL_DIR/academic-paper-interpreter"
     print_success "Copied: academic-paper-interpreter"
 
