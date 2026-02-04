@@ -5,6 +5,7 @@ use crate::shared::errors::{AppError, AppResult};
 use async_trait::async_trait;
 use openai_tools::chat::request::ChatCompletion;
 use openai_tools::common::message::Message as OpenAiMessage;
+use openai_tools::common::models::ChatModel;
 use openai_tools::common::role::Role as OpenAiRole;
 
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o";
@@ -95,7 +96,8 @@ impl LlmProvider for OpenAiProvider {
 
         // Build the request
         let mut chat = ChatCompletion::new();
-        chat.model_id(&model).messages(openai_messages);
+        chat.model(ChatModel::from(model.as_str()))
+            .messages(openai_messages);
 
         // Reasoning models (o1, o3, etc.) only support temperature=1.0
         // Skip setting temperature for these models

@@ -1212,12 +1212,6 @@ impl ExportedPaper {
                 "      <summary>{}</summary>\n",
                 escape_xml(&analysis.summary)
             ));
-            if let Some(ref summary_ja) = analysis.summary_ja {
-                xml.push_str(&format!(
-                    "      <summary-ja>{}</summary-ja>\n",
-                    escape_xml(summary_ja)
-                ));
-            }
             xml.push_str(&format!(
                 "      <background-and-purpose>{}</background-and-purpose>\n",
                 escape_xml(&analysis.background_and_purpose)
@@ -1226,11 +1220,13 @@ impl ExportedPaper {
                 "      <methodology>{}</methodology>\n",
                 escape_xml(&analysis.methodology)
             ));
-            if !analysis.dataset.is_empty() {
-                xml.push_str(&format!(
-                    "      <dataset>{}</dataset>\n",
-                    escape_xml(&analysis.dataset)
-                ));
+            if !analysis.datasets.is_empty() {
+                for ds in &analysis.datasets {
+                    xml.push_str(&format!(
+                        "      <dataset>{}</dataset>\n",
+                        escape_xml(&ds.name)
+                    ));
+                }
             }
             xml.push_str(&format!(
                 "      <results>{}</results>\n",

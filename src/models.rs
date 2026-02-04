@@ -214,7 +214,7 @@ impl std::fmt::Display for SectionImportance {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PaperSection {
     /// Section index (order in paper)
-    pub index: i8,
+    pub index: i16,
 
     /// Section title (e.g., "Abstract", "Introduction")
     pub title: String,
