@@ -70,6 +70,8 @@ DO_REFERENCES=true
 DO_KEYWORDS=true
 DO_WITH_SCHEMA=true
 DO_COMPACT=false
+DO_MATH_MARKUP=true
+DO_EXTRACT_REFS=true
 
 # Colors for output
 RED='\033[0;31m'
@@ -104,6 +106,10 @@ FEATURE OPTIONS:
     --no-analyze              Disable LLM analysis
     -e, --extract-text        Enable PDF text extraction (default: enabled)
     --no-extract              Disable PDF text extraction
+    --math-markup             Include math markup in extracted text (default: enabled)
+    --no-math-markup          Disable math markup in extracted text
+    --extract-refs            Extract bibliographic references from PDF (default: enabled)
+    --no-extract-refs         Disable bibliographic reference extraction
     -c, --citations           Include citing papers (default: enabled)
     --no-citations            Don't include citing papers
     -r, --references          Include referenced papers (default: enabled)
@@ -200,6 +206,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-extract|--no-extract-text)
             DO_EXTRACT_TEXT=false
+            shift
+            ;;
+        --math-markup)
+            DO_MATH_MARKUP=true
+            shift
+            ;;
+        --no-math-markup)
+            DO_MATH_MARKUP=false
+            shift
+            ;;
+        --extract-refs)
+            DO_EXTRACT_REFS=true
+            shift
+            ;;
+        --no-extract-refs)
+            DO_EXTRACT_REFS=false
             shift
             ;;
         -c|--citations)
@@ -345,6 +367,12 @@ if [[ "$DO_ANALYZE" == true ]]; then
 fi
 if [[ "$DO_EXTRACT_TEXT" == true ]]; then
     CMD_ARGS+=("--extract-text")
+fi
+if [[ "$DO_MATH_MARKUP" == false ]]; then
+    CMD_ARGS+=("--no-math-markup")
+fi
+if [[ "$DO_EXTRACT_REFS" == false ]]; then
+    CMD_ARGS+=("--no-extract-references")
 fi
 if [[ "$DO_CITATIONS" == true ]]; then
     CMD_ARGS+=("--include-citations")

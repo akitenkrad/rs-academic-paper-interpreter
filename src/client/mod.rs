@@ -12,7 +12,7 @@ pub use search::{PaperSource, SearchParams, SearchResult};
 pub use semantic::SemanticScholarClient;
 
 use crate::models::AcademicPaper;
-use crate::pdf::PdfExtractor;
+use crate::pdf::{ExtractionConfig, PdfExtractor};
 use crate::shared::errors::{AppError, AppResult};
 use strsim::normalized_levenshtein;
 
@@ -145,6 +145,21 @@ impl PaperClient {
     /// Use this method when you need to ensure text extraction succeeds.
     pub async fn extract_text(&self, paper: &mut AcademicPaper) -> AppResult<()> {
         let extractor = PdfExtractor::new();
+        let text = extractor.extract_for_paper(paper).await?;
+        paper.set_extracted_text(text);
+        Ok(())
+    }
+
+    /// Extract PDF text with custom configuration
+    ///
+    /// Use this method when you need fine-grained control over extraction options
+    /// such as enabling/disabling math markup or reference extraction.
+    pub async fn extract_text_with_config(
+        &self,
+        paper: &mut AcademicPaper,
+        config: ExtractionConfig,
+    ) -> AppResult<()> {
+        let extractor = PdfExtractor::with_config(config);
         let text = extractor.extract_for_paper(paper).await?;
         paper.set_extracted_text(text);
         Ok(())

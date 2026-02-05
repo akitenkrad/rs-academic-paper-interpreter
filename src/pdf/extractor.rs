@@ -1,12 +1,14 @@
 //! PDF text extraction implementation using rsrpp
 
-use crate::models::{AcademicPaper, PaperSection, PaperText, SectionImportance};
+use crate::models::{
+    AcademicPaper, ExtractedReference, PaperSection, PaperText, SectionImportance,
+};
 use crate::shared::errors::{AppError, AppResult};
 use chrono::Local;
 use futures::FutureExt;
 use rsrpp::config::ParserConfig;
-use rsrpp::models::Section;
-use rsrpp::parser::parse;
+use rsrpp::models::{Reference, Section};
+use rsrpp::parser::{pages2paper_output, pages2sections, parse};
 use std::panic::AssertUnwindSafe;
 
 /// Configuration for PDF extraction
@@ -16,6 +18,10 @@ pub struct ExtractionConfig {
     pub verbose: bool,
     /// Cleanup temporary files after extraction
     pub cleanup: bool,
+    /// Include math markup in extracted text (using `<math>...</math>` tags)
+    pub include_math: bool,
+    /// Extract bibliographic references from PDF (requires OPENAI_API_KEY)
+    pub extract_references: bool,
 }
 
 impl Default for ExtractionConfig {
@@ -23,6 +29,8 @@ impl Default for ExtractionConfig {
         Self {
             verbose: false,
             cleanup: true,
+            include_math: true,
+            extract_references: true,
         }
     }
 }
@@ -42,6 +50,18 @@ impl ExtractionConfig {
     /// Set cleanup behavior
     pub fn with_cleanup(mut self, cleanup: bool) -> Self {
         self.cleanup = cleanup;
+        self
+    }
+
+    /// Set math markup extraction
+    pub fn with_include_math(mut self, include_math: bool) -> Self {
+        self.include_math = include_math;
+        self
+    }
+
+    /// Set reference extraction
+    pub fn with_extract_references(mut self, extract_references: bool) -> Self {
+        self.extract_references = extract_references;
         self
     }
 }
@@ -69,6 +89,11 @@ impl PdfExtractor {
         tracing::info!("Extracting text from PDF: {}", url);
 
         let mut parser_config = ParserConfig::new();
+
+        // Enable reference extraction if configured and LLM is available
+        if self.config.extract_references {
+            parser_config.extract_references = true;
+        }
 
         // Wrap parse call in catch_unwind to handle panics from rsrpp gracefully
         let parse_result = AssertUnwindSafe(parse(url, &mut parser_config, self.config.verbose))
@@ -99,10 +124,29 @@ impl PdfExtractor {
             }
         };
 
-        let sections = Section::from_pages(&pages);
+        // Use the new rsrpp API: pages2sections includes math markup and captions
+        let sections = pages2sections(&pages, &parser_config);
+
+        // Extract references if configured
+        let references = if self.config.extract_references {
+            let output = pages2paper_output(&pages, &parser_config);
+            if output.references.is_empty() {
+                None
+            } else {
+                Some(
+                    output
+                        .references
+                        .into_iter()
+                        .map(Self::convert_reference)
+                        .collect(),
+                )
+            }
+        } else {
+            None
+        };
 
         // Build PaperText from sections
-        let paper_text = self.build_paper_text(&sections, url);
+        let paper_text = self.build_paper_text(&sections, url, references);
 
         // Cleanup temp files
         if self.config.cleanup && parser_config.clean_files().is_err() {
@@ -110,9 +154,14 @@ impl PdfExtractor {
         }
 
         tracing::info!(
-            "Extracted {} sections, {} chars total",
+            "Extracted {} sections, {} chars total{}",
             paper_text.sections.len(),
-            paper_text.plain_text.len()
+            paper_text.plain_text.len(),
+            paper_text
+                .extracted_references
+                .as_ref()
+                .map(|r| format!(", {} references", r.len()))
+                .unwrap_or_default()
         );
 
         Ok(paper_text)
@@ -142,15 +191,15 @@ impl PdfExtractor {
     }
 
     /// Build PaperText from rsrpp sections
-    fn build_paper_text(&self, sections: &[Section], source_url: &str) -> PaperText {
+    fn build_paper_text(
+        &self,
+        sections: &[Section],
+        source_url: &str,
+        references: Option<Vec<ExtractedReference>>,
+    ) -> PaperText {
         let paper_sections: Vec<PaperSection> = sections
             .iter()
-            .map(|s| PaperSection {
-                index: s.index,
-                title: s.title.clone(),
-                content: s.get_text(),
-                importance: SectionImportance::from_title(&s.title),
-            })
+            .map(|s| self.build_paper_section(s))
             .collect();
 
         let plain_text = self.build_plain_text(&paper_sections);
@@ -162,6 +211,55 @@ impl PdfExtractor {
             markdown,
             extracted_at: Local::now(),
             source_url: source_url.to_string(),
+            extracted_references: references,
+        }
+    }
+
+    /// Build a PaperSection from rsrpp Section with math and captions
+    fn build_paper_section(&self, s: &Section) -> PaperSection {
+        // Get math-marked content if include_math is enabled and math content differs from regular
+        let math_content = if self.config.include_math {
+            let math_text = s.get_math_text();
+            let regular_text = s.get_text();
+            // Only include math_content if it's different from regular content
+            if math_text != regular_text {
+                Some(math_text)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Get captions if present
+        let captions = if s.captions.is_empty() {
+            None
+        } else {
+            Some(s.captions.clone())
+        };
+
+        PaperSection {
+            index: s.index,
+            title: s.title.clone(),
+            content: s.get_text(),
+            importance: SectionImportance::from_title(&s.title),
+            math_content,
+            captions,
+        }
+    }
+
+    /// Convert rsrpp Reference to ExtractedReference
+    fn convert_reference(r: Reference) -> ExtractedReference {
+        ExtractedReference {
+            authors: r.authors.unwrap_or_default(),
+            title: r.title.unwrap_or_default(),
+            year: r.year,
+            venue: r.venue,
+            doi: r.doi,
+            url: r.url,
+            arxiv_id: r.arxiv_id,
+            volume: r.volume,
+            pages: r.pages,
         }
     }
 
@@ -205,9 +303,13 @@ mod tests {
     fn test_extraction_config_builder() {
         let config = ExtractionConfig::new()
             .with_verbose(true)
-            .with_cleanup(false);
+            .with_cleanup(false)
+            .with_include_math(false)
+            .with_extract_references(false);
         assert!(config.verbose);
         assert!(!config.cleanup);
+        assert!(!config.include_math);
+        assert!(!config.extract_references);
     }
 
     #[test]
@@ -219,12 +321,16 @@ mod tests {
                 title: "Abstract".to_string(),
                 content: "This is the abstract.".to_string(),
                 importance: SectionImportance::Critical,
+                math_content: None,
+                captions: None,
             },
             PaperSection {
                 index: 1,
                 title: "Introduction".to_string(),
                 content: "This is the introduction.".to_string(),
                 importance: SectionImportance::High,
+                math_content: None,
+                captions: None,
             },
         ];
         let plain = extractor.build_plain_text(&sections);
@@ -241,6 +347,8 @@ mod tests {
             title: "Abstract".to_string(),
             content: "This is the abstract.".to_string(),
             importance: SectionImportance::Critical,
+            math_content: None,
+            captions: None,
         }];
         let md = extractor.build_markdown(&sections);
         assert!(md.contains("## Abstract"));

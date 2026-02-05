@@ -50,7 +50,9 @@ pub use export::{
     ExportOptions, ExportedPaper, KeywordsData, PaperSummary, ReferenceData, ReferenceStatistics,
     ResearchContext, TechnicalTerm, get_xml_schema,
 };
-pub use models::{AcademicPaper, Author, DatasetInfo, PaperAnalysis, PaperSection, PaperText};
+pub use models::{
+    AcademicPaper, Author, DatasetInfo, ExtractedReference, PaperAnalysis, PaperSection, PaperText,
+};
 pub use pdf::{ExtractionConfig, PdfExtractor};
 pub use shared::config::Config;
 pub use shared::errors::{AppError, AppResult};

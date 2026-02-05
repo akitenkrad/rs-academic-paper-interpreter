@@ -500,6 +500,83 @@ pub const EXPORTED_PAPER_XSD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
           </xs:sequence>
         </xs:complexType>
       </xs:element>
+      <xs:element name="extracted-references" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">PDFから抽出された参考文献リスト（LLM使用）</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="reference" type="ExtractedReferenceType" maxOccurs="unbounded">
+              <xs:annotation>
+                <xs:documentation xml:lang="ja">個別の参考文献</xs:documentation>
+              </xs:annotation>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- 抽出参考文献型 -->
+  <xs:complexType name="ExtractedReferenceType">
+    <xs:annotation>
+      <xs:documentation xml:lang="ja">PDFから抽出された参考文献の構造化データ</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="authors" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">著者リスト</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="author" type="xs:string" maxOccurs="unbounded">
+              <xs:annotation>
+                <xs:documentation xml:lang="ja">著者名</xs:documentation>
+              </xs:annotation>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="title" type="xs:string">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">参考文献のタイトル</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="year" type="xs:integer" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">出版年</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="venue" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">掲載誌/会議名</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="doi" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">Digital Object Identifier</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="url" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">URL</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="arxiv-id" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">arXiv ID</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="volume" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">巻号</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="pages" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">ページ範囲</xs:documentation>
+        </xs:annotation>
+      </xs:element>
     </xs:sequence>
   </xs:complexType>
 
@@ -518,6 +595,25 @@ pub const EXPORTED_PAPER_XSD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
         <xs:annotation>
           <xs:documentation xml:lang="ja">セクションの本文内容</xs:documentation>
         </xs:annotation>
+      </xs:element>
+      <xs:element name="math-content" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">数式マークアップ付きの本文（math タグで数式を囲む）</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="captions" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="ja">このセクションに含まれる図表のキャプション</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="caption" type="xs:string" maxOccurs="unbounded">
+              <xs:annotation>
+                <xs:documentation xml:lang="ja">個別のキャプション（Figure/Table）</xs:documentation>
+              </xs:annotation>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
       </xs:element>
     </xs:sequence>
     <xs:attribute name="index" type="xs:integer" use="required">
@@ -1294,9 +1390,81 @@ impl ExportedPaper {
                     "          <content>{}</content>\n",
                     escape_xml(&section.content)
                 ));
+                // Math content (if different from regular content)
+                if let Some(ref math) = section.math_content {
+                    xml.push_str(&format!(
+                        "          <math-content>{}</math-content>\n",
+                        escape_xml(math)
+                    ));
+                }
+                // Captions
+                if let Some(ref captions) = section.captions
+                    && !captions.is_empty()
+                {
+                    xml.push_str("          <captions>\n");
+                    for caption in captions {
+                        xml.push_str(&format!(
+                            "            <caption>{}</caption>\n",
+                            escape_xml(caption)
+                        ));
+                    }
+                    xml.push_str("          </captions>\n");
+                }
                 xml.push_str("        </section>\n");
             }
             xml.push_str("      </sections>\n");
+            // Extracted references
+            if let Some(ref refs) = text.extracted_references
+                && !refs.is_empty()
+            {
+                xml.push_str("      <extracted-references>\n");
+                for r in refs {
+                    xml.push_str("        <reference>\n");
+                    if !r.authors.is_empty() {
+                        xml.push_str("          <authors>\n");
+                        for author in &r.authors {
+                            xml.push_str(&format!(
+                                "            <author>{}</author>\n",
+                                escape_xml(author)
+                            ));
+                        }
+                        xml.push_str("          </authors>\n");
+                    }
+                    xml.push_str(&format!(
+                        "          <title>{}</title>\n",
+                        escape_xml(&r.title)
+                    ));
+                    if let Some(year) = r.year {
+                        xml.push_str(&format!("          <year>{}</year>\n", year));
+                    }
+                    if let Some(ref venue) = r.venue {
+                        xml.push_str(&format!("          <venue>{}</venue>\n", escape_xml(venue)));
+                    }
+                    if let Some(ref doi) = r.doi {
+                        xml.push_str(&format!("          <doi>{}</doi>\n", escape_xml(doi)));
+                    }
+                    if let Some(ref url) = r.url {
+                        xml.push_str(&format!("          <url>{}</url>\n", escape_xml(url)));
+                    }
+                    if let Some(ref arxiv_id) = r.arxiv_id {
+                        xml.push_str(&format!(
+                            "          <arxiv-id>{}</arxiv-id>\n",
+                            escape_xml(arxiv_id)
+                        ));
+                    }
+                    if let Some(ref volume) = r.volume {
+                        xml.push_str(&format!(
+                            "          <volume>{}</volume>\n",
+                            escape_xml(volume)
+                        ));
+                    }
+                    if let Some(ref pages) = r.pages {
+                        xml.push_str(&format!("          <pages>{}</pages>\n", escape_xml(pages)));
+                    }
+                    xml.push_str("        </reference>\n");
+                }
+                xml.push_str("      </extracted-references>\n");
+            }
             xml.push_str("    </extracted-text>\n");
         }
 

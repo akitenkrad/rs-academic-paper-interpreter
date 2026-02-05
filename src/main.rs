@@ -6,9 +6,9 @@ use academic_paper_interpreter::agents::providers::{
 use academic_paper_interpreter::shared::config::LlmProviderType;
 use academic_paper_interpreter::shared::logger::init_logger;
 use academic_paper_interpreter::{
-    AcademicPaper, CitationData, CitationStatistics, ExportOptions, ExportedPaper, KeywordsData,
-    LlmProvider, PaperAnalyzer, PaperClient, PaperSummary, ReferenceData, ReferenceStatistics,
-    ResearchContext, SearchParams, get_xml_schema,
+    AcademicPaper, CitationData, CitationStatistics, ExportOptions, ExportedPaper,
+    ExtractionConfig, KeywordsData, LlmProvider, PaperAnalyzer, PaperClient, PaperSummary,
+    ReferenceData, ReferenceStatistics, ResearchContext, SearchParams, get_xml_schema,
 };
 use chrono::Local;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -203,6 +203,14 @@ enum Commands {
         /// Output XML Schema (.xsd) alongside the XML file (only for XML format)
         #[arg(long)]
         with_schema: bool,
+
+        /// Disable math markup in extracted text (skip `<math>...</math>` tags)
+        #[arg(long)]
+        no_math_markup: bool,
+
+        /// Disable bibliographic reference extraction from PDF (requires OPENAI_API_KEY)
+        #[arg(long)]
+        no_extract_references: bool,
     },
 }
 
@@ -289,6 +297,8 @@ async fn main() -> anyhow::Result<()> {
             compact,
             format,
             with_schema,
+            no_math_markup,
+            no_extract_references,
         } => {
             cmd_export(
                 arxiv,
@@ -307,6 +317,8 @@ async fn main() -> anyhow::Result<()> {
                 compact,
                 format,
                 with_schema,
+                no_math_markup,
+                no_extract_references,
             )
             .await?;
         }
@@ -700,6 +712,8 @@ async fn cmd_export(
     compact: bool,
     format: ExportFormat,
     with_schema: bool,
+    no_math_markup: bool,
+    no_extract_references: bool,
 ) -> anyhow::Result<()> {
     if arxiv.is_none() && ss.is_none() && title.is_none() {
         anyhow::bail!("Either --arxiv, --ss, or --title is required");
@@ -797,7 +811,14 @@ async fn cmd_export(
 
     // Extract text if requested
     if extract_text && !paper.has_extracted_text() {
-        match client.extract_text(&mut paper).await {
+        let extraction_config = ExtractionConfig::new()
+            .with_include_math(!no_math_markup)
+            .with_extract_references(!no_extract_references);
+
+        match client
+            .extract_text_with_config(&mut paper, extraction_config)
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 exported.add_warning(format!("Text extraction failed: {}", e));

@@ -45,8 +45,8 @@ impl AnthropicProvider {
             AppError::ConfigError("ANTHROPIC_API_KEY environment variable not set".to_string())
         })?;
 
-        let model =
-            std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
+        let model = std::env::var("ANTHROPIC_MODEL")
+            .unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
 
         Ok(Self {
             default_model: model,

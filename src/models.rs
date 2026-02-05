@@ -210,6 +210,63 @@ impl std::fmt::Display for SectionImportance {
     }
 }
 
+/// A bibliographic reference extracted from a paper's References section.
+///
+/// This struct represents a single citation/reference that was parsed
+/// from the PDF using LLM-based extraction (requires OPENAI_API_KEY).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ExtractedReference {
+    /// List of author names
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<String>,
+
+    /// Title of the referenced work
+    pub title: String,
+
+    /// Publication year
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year: Option<i32>,
+
+    /// Venue (journal, conference, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub venue: Option<String>,
+
+    /// Digital Object Identifier
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doi: Option<String>,
+
+    /// URL if present
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// arXiv identifier (e.g., "2308.10379")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arxiv_id: Option<String>,
+
+    /// Volume number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume: Option<String>,
+
+    /// Page range (e.g., "1-15")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pages: Option<String>,
+}
+
+impl ExtractedReference {
+    /// Create a new reference with just a title
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Check if this reference has meaningful content
+    pub fn is_valid(&self) -> bool {
+        !self.title.is_empty()
+    }
+}
+
 /// Section of an academic paper with extracted text
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PaperSection {
@@ -224,6 +281,14 @@ pub struct PaperSection {
 
     /// Section importance level
     pub importance: SectionImportance,
+
+    /// Math-marked content (text with `<math>...</math>` tags for formulas)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub math_content: Option<String>,
+
+    /// Figure/Table captions belonging to this section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captions: Option<Vec<String>>,
 }
 
 /// Extracted text from a paper PDF in multiple formats
@@ -243,6 +308,10 @@ pub struct PaperText {
 
     /// Source PDF URL used for extraction
     pub source_url: String,
+
+    /// Bibliographic references extracted from the paper (requires LLM)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted_references: Option<Vec<ExtractedReference>>,
 }
 
 impl PaperText {
@@ -817,7 +886,7 @@ mod tests {
         assert!(json.contains("\"datasets\": ["));
         assert!(json.contains("\"name\": \"COCO\""));
         assert!(json.contains("\"name\": \"SQuAD\""));
-        assert!(!json.contains("\"datasets\": \""));  // Should NOT be a string
+        assert!(!json.contains("\"datasets\": \"")); // Should NOT be a string
     }
 
     #[test]
@@ -905,17 +974,22 @@ mod tests {
                     title: "Abstract".to_string(),
                     content: "This is the abstract.".to_string(),
                     importance: SectionImportance::Critical,
+                    math_content: None,
+                    captions: None,
                 },
                 PaperSection {
                     index: 1,
                     title: "Introduction".to_string(),
                     content: "This is the introduction.".to_string(),
                     importance: SectionImportance::High,
+                    math_content: None,
+                    captions: None,
                 },
             ],
             markdown: "## Abstract\n\nThis is the abstract.".to_string(),
             extracted_at: Local::now(),
             source_url: "https://example.com/paper.pdf".to_string(),
+            extracted_references: None,
         };
 
         let xml = paper_text.to_xml();
@@ -941,10 +1015,13 @@ mod tests {
                 title: "Test & <Special> 'Characters' \"Section\"".to_string(),
                 content: "Content with <html> & special chars".to_string(),
                 importance: SectionImportance::Medium,
+                math_content: None,
+                captions: None,
             }],
             markdown: "".to_string(),
             extracted_at: Local::now(),
             source_url: "".to_string(),
+            extracted_references: None,
         };
 
         let xml = paper_text.to_xml();
