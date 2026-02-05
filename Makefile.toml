@@ -21,8 +21,9 @@ install_crate = "taplo-cli"
 script = """taplo fmt --option reorder_keys=true"""
 
 [tasks.clippy]
+args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+command = "cargo"
 description = "Run clippy linter."
-script = """cargo clippy --all-targets --all-features -- -D warnings"""
 
 [tasks.reformat]
 description = "Reformat the code using rustfmt."
@@ -33,30 +34,35 @@ script = """cargo fmt -- --emit files"""
 dependencies = ["dev-build"]
 description = "Run all tests in the project."
 install_crate = "cargo-nextest"
+install_crate_args = ["--locked"]
 script = """cargo nextest run --workspace --status-level all --test-threads=1"""
 
 [tasks.integration-test]
 dependencies = ["dev-build"]
 description = "Run all integration tests (requires API keys)."
 install_crate = "cargo-nextest"
+install_crate_args = ["--locked"]
 script = """cargo nextest run --test integration_tests -- --ignored"""
 
 [tasks.integration-test-openai]
 dependencies = ["dev-build"]
 description = "Run OpenAI integration tests."
 install_crate = "cargo-nextest"
+install_crate_args = ["--locked"]
 script = """cargo nextest run --test integration_tests openai -- --ignored"""
 
 [tasks.integration-test-anthropic]
 dependencies = ["dev-build"]
 description = "Run Anthropic integration tests."
 install_crate = "cargo-nextest"
+install_crate_args = ["--locked"]
 script = """cargo nextest run --test integration_tests anthropic -- --ignored"""
 
 [tasks.integration-test-ollama]
 dependencies = ["dev-build"]
 description = "Run Ollama integration tests (requires Ollama server)."
 install_crate = "cargo-nextest"
+install_crate_args = ["--locked"]
 script = """cargo nextest run --test integration_tests ollama -- --ignored"""
 
 [tasks.test-all]
