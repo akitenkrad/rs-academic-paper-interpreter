@@ -557,9 +557,22 @@ impl AcademicPaper {
             .or_else(|| paper.venue.clone())
             .unwrap_or_default();
 
+        let (arxiv_id, doi) = paper
+            .external_ids
+            .as_ref()
+            .map(|ids| {
+                (
+                    ids.arxiv.clone().unwrap_or_default(),
+                    ids.doi.clone().unwrap_or_default(),
+                )
+            })
+            .unwrap_or_default();
+
         Self {
             ss_paper: Some(paper.clone()),
             ss_id: paper.paper_id.clone().unwrap_or_default(),
+            arxiv_id,
+            doi,
             title: paper.title.clone().unwrap_or_default(),
             abstract_text: paper.abstract_text.clone().unwrap_or_default(),
             authors,
@@ -610,6 +623,23 @@ impl AcademicPaper {
                 .and_then(|cs| cs.bibtex.as_ref())
         {
             self.bibtex = bibtex.clone();
+        }
+
+        // Fill in arxiv_id from external_ids if not already set
+        if self.arxiv_id.is_empty()
+            && let Some(arxiv) = paper
+                .external_ids
+                .as_ref()
+                .and_then(|ids| ids.arxiv.as_ref())
+        {
+            self.arxiv_id = arxiv.clone();
+        }
+
+        // Fill in doi from external_ids if not already set
+        if self.doi.is_empty()
+            && let Some(doi) = paper.external_ids.as_ref().and_then(|ids| ids.doi.as_ref())
+        {
+            self.doi = doi.clone();
         }
 
         // Update open access info
@@ -1034,5 +1064,85 @@ mod tests {
         assert!(xml.contains("&apos;"));
         assert!(!xml.contains(" & "));
         assert!(!xml.contains("<html>"));
+    }
+
+    #[test]
+    fn test_from_semantic_scholar_with_external_ids() {
+        use ss_tools::structs::ExternalIds;
+
+        let ss_paper = SsPaper {
+            paper_id: Some("abc123".to_string()),
+            title: Some("Test Paper".to_string()),
+            external_ids: Some(ExternalIds {
+                arxiv: Some("2301.00001".to_string()),
+                doi: Some("10.1234/test.2023".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let paper = AcademicPaper::from_semantic_scholar(ss_paper);
+        assert_eq!(paper.arxiv_id, "2301.00001");
+        assert_eq!(paper.doi, "10.1234/test.2023");
+        assert_eq!(paper.ss_id, "abc123");
+    }
+
+    #[test]
+    fn test_enrich_from_semantic_scholar_sets_arxiv_id() {
+        use ss_tools::structs::ExternalIds;
+
+        // Start with an arXiv-sourced paper that has no SS enrichment yet
+        let mut paper = AcademicPaper::new();
+        paper.title = "Test Paper".to_string();
+        // arxiv_id and doi are empty initially
+        assert!(paper.arxiv_id.is_empty());
+        assert!(paper.doi.is_empty());
+
+        let ss_paper = SsPaper {
+            paper_id: Some("abc123".to_string()),
+            title: Some("Test Paper".to_string()),
+            citation_count: Some(42),
+            external_ids: Some(ExternalIds {
+                arxiv: Some("2301.00001".to_string()),
+                doi: Some("10.1234/test.2023".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        paper.enrich_from_semantic_scholar(ss_paper);
+
+        assert_eq!(paper.arxiv_id, "2301.00001");
+        assert_eq!(paper.doi, "10.1234/test.2023");
+        assert_eq!(paper.ss_id, "abc123");
+        assert_eq!(paper.citations_count, 42);
+    }
+
+    #[test]
+    fn test_pdf_url_with_ss_external_ids() {
+        use ss_tools::structs::ExternalIds;
+
+        // Create a paper from SS that has external_ids with arXiv ID
+        // but no open_access_pdf_url
+        let ss_paper = SsPaper {
+            paper_id: Some("abc123".to_string()),
+            title: Some("Test Paper".to_string()),
+            external_ids: Some(ExternalIds {
+                arxiv: Some("2301.00001".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let paper = AcademicPaper::from_semantic_scholar(ss_paper);
+
+        // open_access_pdf_url is None, but arxiv_id is set via external_ids
+        assert!(paper.open_access_pdf_url.is_none());
+        assert_eq!(paper.arxiv_id, "2301.00001");
+
+        // pdf_url() should fall back to arXiv PDF URL
+        let pdf_url = paper.pdf_url();
+        assert!(pdf_url.is_some());
+        assert_eq!(pdf_url.unwrap(), "https://arxiv.org/pdf/2301.00001");
     }
 }

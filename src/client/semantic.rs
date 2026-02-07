@@ -1,7 +1,7 @@
 //! Semantic Scholar API client wrapper
 
 use crate::shared::errors::{AppError, AppResult};
-use ss_tools::structs::Paper as SsPaper;
+use ss_tools::structs::{AuthorField, Paper as SsPaper, PaperField};
 use ss_tools::{QueryParams as SsQueryParams, SemanticScholar};
 
 use super::search::SearchParams;
@@ -36,11 +36,44 @@ impl SemanticScholarClient {
         self
     }
 
+    /// Default paper fields to request from the Semantic Scholar API.
+    ///
+    /// Includes all commonly used fields plus ExternalIds for cross-referencing
+    /// arXiv IDs and DOIs from Semantic Scholar responses.
+    fn default_paper_fields() -> Vec<PaperField> {
+        vec![
+            PaperField::PaperId,
+            PaperField::Title,
+            PaperField::Abstract,
+            PaperField::Url,
+            PaperField::Venue,
+            PaperField::Year,
+            PaperField::ReferenceCount,
+            PaperField::CitationCount,
+            PaperField::InfluentialCitationCount,
+            PaperField::IsOpenAccess,
+            PaperField::OpenAccessPdf,
+            PaperField::PublicationDate,
+            PaperField::Journal,
+            PaperField::CitationStyles,
+            PaperField::ExternalIds,
+            PaperField::Authors(vec![
+                AuthorField::AuthorId,
+                AuthorField::Name,
+                AuthorField::Affiliations,
+                AuthorField::PaperCount,
+                AuthorField::CitationCount,
+                AuthorField::HIndex,
+            ]),
+        ]
+    }
+
     /// Search papers by title or query
     pub async fn search(&self, params: &SearchParams) -> AppResult<Vec<SsPaper>> {
         let query_text = self.build_query_text(params)?;
         let mut query_params = SsQueryParams::default();
         query_params.query_text(&query_text);
+        query_params.fields(Self::default_paper_fields());
         query_params.limit(params.max_results as u64);
 
         if let Some(ref year) = params.year {
@@ -64,6 +97,7 @@ impl SemanticScholarClient {
     pub async fn search_exact_title(&self, title: &str) -> AppResult<SsPaper> {
         let mut query_params = SsQueryParams::default();
         query_params.query_text(title);
+        query_params.fields(Self::default_paper_fields());
 
         let mut client = self.client.clone();
         let paper = client
@@ -80,6 +114,7 @@ impl SemanticScholarClient {
     pub async fn fetch_details(&self, paper_id: &str) -> AppResult<SsPaper> {
         let mut query_params = SsQueryParams::default();
         query_params.paper_id(paper_id);
+        query_params.fields(Self::default_paper_fields());
 
         let mut client = self.client.clone();
         let paper = client
