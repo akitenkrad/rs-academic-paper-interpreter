@@ -175,8 +175,10 @@ impl PdfExtractor {
 
     /// Get PDF URL from paper (prefers open_access_pdf_url, falls back to arXiv)
     fn get_pdf_url(&self, paper: &AcademicPaper) -> AppResult<String> {
-        // Try open access PDF first
-        if let Some(ref url) = paper.open_access_pdf_url {
+        // Try open access PDF first (skip empty strings)
+        if let Some(ref url) = paper.open_access_pdf_url
+            && !url.is_empty()
+        {
             return Ok(url.clone());
         }
 
@@ -384,5 +386,17 @@ mod tests {
 
         let url = extractor.get_pdf_url(&paper);
         assert!(url.is_err());
+    }
+
+    #[test]
+    fn test_get_pdf_url_empty_string_fallback() {
+        let extractor = PdfExtractor::new();
+        let mut paper = AcademicPaper::new();
+        paper.open_access_pdf_url = Some("".to_string());
+        paper.arxiv_id = "1706.03762".to_string();
+
+        let url = extractor.get_pdf_url(&paper);
+        assert!(url.is_ok());
+        assert_eq!(url.unwrap(), "https://arxiv.org/pdf/1706.03762");
     }
 }

@@ -541,7 +541,7 @@ impl AcademicPaper {
         let (is_open_access, open_access_pdf_url) = paper
             .open_access_pdf
             .as_ref()
-            .map(|pdf| (true, pdf.url.clone()))
+            .map(|pdf| (true, pdf.url.clone().filter(|u| !u.is_empty())))
             .unwrap_or((paper.is_open_access.unwrap_or(false), None));
 
         let bibtex = paper
@@ -645,7 +645,7 @@ impl AcademicPaper {
         // Update open access info
         if let Some(pdf) = &paper.open_access_pdf {
             self.is_open_access = true;
-            self.open_access_pdf_url = pdf.url.clone();
+            self.open_access_pdf_url = pdf.url.clone().filter(|u| !u.is_empty());
         }
 
         self.updated_at = Local::now();
@@ -753,7 +753,9 @@ impl AcademicPaper {
 
     /// Get PDF URL for extraction (prefers open_access, falls back to arXiv)
     pub fn pdf_url(&self) -> Option<String> {
-        if let Some(ref url) = self.open_access_pdf_url {
+        if let Some(ref url) = self.open_access_pdf_url
+            && !url.is_empty()
+        {
             return Some(url.clone());
         }
         if !self.arxiv_id.is_empty() {
@@ -1116,6 +1118,18 @@ mod tests {
         assert_eq!(paper.doi, "10.1234/test.2023");
         assert_eq!(paper.ss_id, "abc123");
         assert_eq!(paper.citations_count, 42);
+    }
+
+    #[test]
+    fn test_pdf_url_empty_string_falls_back_to_arxiv() {
+        // When open_access_pdf_url is Some(""), pdf_url() should fall back to arXiv URL
+        let mut paper = AcademicPaper::new();
+        paper.open_access_pdf_url = Some("".to_string());
+        paper.arxiv_id = "1706.03762".to_string();
+
+        let pdf_url = paper.pdf_url();
+        assert!(pdf_url.is_some());
+        assert_eq!(pdf_url.unwrap(), "https://arxiv.org/pdf/1706.03762");
     }
 
     #[test]
