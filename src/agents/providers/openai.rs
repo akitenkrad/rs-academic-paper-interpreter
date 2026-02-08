@@ -66,11 +66,6 @@ impl OpenAiProvider {
         OpenAiMessage::from_string(role, msg.content)
     }
 
-    /// Check if the model is a reasoning model (o1, o3, etc.)
-    /// Reasoning models only support temperature=1.0
-    fn is_reasoning_model(model: &str) -> bool {
-        model.starts_with("o1") || model.starts_with("o3")
-    }
 }
 
 #[async_trait]
@@ -99,10 +94,8 @@ impl LlmProvider for OpenAiProvider {
         chat.model(ChatModel::from(model.as_str()))
             .messages(openai_messages);
 
-        // Reasoning models (o1, o3, etc.) only support temperature=1.0
-        // Skip setting temperature for these models
-        if !Self::is_reasoning_model(&model) {
-            chat.temperature(config.temperature);
+        if let Some(temp) = config.temperature {
+            chat.temperature(temp);
         }
 
         if let Some(max_tokens) = config.max_tokens {
@@ -145,18 +138,4 @@ mod tests {
         assert_eq!(provider.default_model(), "gpt-4-turbo");
     }
 
-    #[test]
-    fn test_is_reasoning_model() {
-        // Reasoning models
-        assert!(OpenAiProvider::is_reasoning_model("o1"));
-        assert!(OpenAiProvider::is_reasoning_model("o1-preview"));
-        assert!(OpenAiProvider::is_reasoning_model("o1-mini"));
-        assert!(OpenAiProvider::is_reasoning_model("o3"));
-        assert!(OpenAiProvider::is_reasoning_model("o3-mini"));
-
-        // Non-reasoning models
-        assert!(!OpenAiProvider::is_reasoning_model("gpt-4o"));
-        assert!(!OpenAiProvider::is_reasoning_model("gpt-4-turbo"));
-        assert!(!OpenAiProvider::is_reasoning_model("gpt-3.5-turbo"));
-    }
 }

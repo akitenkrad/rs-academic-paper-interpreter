@@ -107,7 +107,7 @@ impl<P: LlmProvider> PaperAnalyzer<P> {
 
     /// Set the temperature for analysis
     pub fn with_temperature(mut self, temp: f32) -> Self {
-        self.config.temperature = temp;
+        self.config.temperature = Some(temp);
         self
     }
 
@@ -279,7 +279,7 @@ impl<P: LlmProvider> PaperAnalyzerBuilder<P> {
 
     /// Set temperature
     pub fn temperature(mut self, temp: f32) -> Self {
-        self.config.temperature = temp;
+        self.config.temperature = Some(temp);
         self
     }
 
@@ -354,7 +354,7 @@ mod tests {
     async fn test_paper_analyzer_creation() {
         let provider = MockProvider;
         let analyzer = PaperAnalyzer::new(provider);
-        assert_eq!(analyzer.config.temperature, 0.3);
+        assert_eq!(analyzer.config.temperature, None);
     }
 
     #[tokio::test]

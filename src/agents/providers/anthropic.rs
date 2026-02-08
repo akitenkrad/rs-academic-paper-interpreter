@@ -75,8 +75,11 @@ impl LlmProvider for AnthropicProvider {
         let mut client = Messages::new();
         client
             .model(model.as_str())
-            .max_tokens(config.max_tokens.unwrap_or(4096) as usize)
-            .temperature(config.temperature);
+            .max_tokens(config.max_tokens.unwrap_or(4096) as usize);
+
+        if let Some(temp) = config.temperature {
+            client.temperature(temp);
+        }
 
         // Add messages
         for msg in messages {

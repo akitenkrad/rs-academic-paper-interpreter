@@ -66,7 +66,7 @@ impl Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
     /// Temperature for sampling (0.0 = deterministic, 1.0 = creative)
-    pub temperature: f32,
+    pub temperature: Option<f32>,
 
     /// Maximum tokens to generate
     pub max_tokens: Option<u32>,
@@ -84,7 +84,7 @@ pub struct LlmConfig {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            temperature: 0.3, // Lower for factual analysis
+            temperature: None,
             max_tokens: Some(4096),
             model: String::new(), // Provider-specific default
             top_p: None,
@@ -101,7 +101,7 @@ impl LlmConfig {
 
     /// Set temperature
     pub fn with_temperature(mut self, temp: f32) -> Self {
-        self.temperature = temp;
+        self.temperature = Some(temp);
         self
     }
 
@@ -216,7 +216,7 @@ mod tests {
             .with_max_tokens(2048)
             .with_model("gpt-4");
 
-        assert_eq!(config.temperature, 0.7);
+        assert_eq!(config.temperature, Some(0.7));
         assert_eq!(config.max_tokens, Some(2048));
         assert_eq!(config.model, "gpt-4");
     }
