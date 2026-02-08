@@ -113,11 +113,19 @@ impl PaperClient {
 
     /// Fetch a paper by Semantic Scholar ID
     ///
-    /// This method also attempts to extract PDF text automatically.
+    /// This method also attempts to enrich from arXiv (if arxiv_id is available)
+    /// and extract PDF text automatically.
     /// If PDF extraction fails, the paper is still returned with `extracted_text` as `None`.
     pub async fn fetch_by_ss_id(&self, ss_id: &str) -> AppResult<AcademicPaper> {
         let ss_paper = self.semantic_scholar.fetch_details(ss_id).await?;
         let mut paper = AcademicPaper::from_semantic_scholar(ss_paper);
+
+        // Try to enrich with arXiv data (symmetric with fetch_by_arxiv_id's SS enrichment)
+        if !paper.arxiv_id.is_empty()
+            && let Ok(arxiv_paper) = self.arxiv.fetch_by_id(&paper.arxiv_id).await
+        {
+            paper.enrich_from_arxiv(arxiv_paper);
+        }
 
         // Try to extract PDF text (non-fatal on failure)
         self.try_extract_text(&mut paper).await;
@@ -206,18 +214,24 @@ impl PaperClient {
         Ok(result)
     }
 
-    /// Deduplicate papers by title similarity
+    /// Deduplicate papers by title similarity, merging data from duplicates
+    ///
+    /// When a duplicate is found, its data is merged into the existing paper
+    /// rather than being discarded. This preserves SS metrics on arXiv-sourced
+    /// papers and vice versa.
     fn deduplicate_papers(&self, papers: Vec<AcademicPaper>) -> Vec<AcademicPaper> {
         let mut unique_papers: Vec<AcademicPaper> = Vec::new();
 
         for paper in papers {
             let normalized_title = self.normalize_title(&paper.title);
-            let is_duplicate = unique_papers.iter().any(|p| {
+            let dup_index = unique_papers.iter().position(|p| {
                 let existing_normalized = self.normalize_title(&p.title);
                 self.titles_match(&normalized_title, &existing_normalized)
             });
 
-            if !is_duplicate {
+            if let Some(idx) = dup_index {
+                unique_papers[idx].merge_with(paper);
+            } else {
                 unique_papers.push(paper);
             }
         }
@@ -353,5 +367,57 @@ mod tests {
         // Empty papers
         let result = client.find_best_match_by_title(&[], "test");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_deduplicate_merges_instead_of_dropping() {
+        let client = PaperClient::new();
+
+        // Paper 1: arXiv-sourced (has abstract, url, published_date from arXiv)
+        let arxiv_paper = arxiv_tools::Paper {
+            id: "1706.03762".to_string(),
+            title: "Attention Is All You Need".to_string(),
+            authors: vec!["Vaswani".to_string()],
+            abstract_text: "arXiv abstract".to_string(),
+            published: "2017-06-12T00:00:00Z".to_string(),
+            updated: "2017-06-12T00:00:00Z".to_string(),
+            doi: "".to_string(),
+            comment: vec![],
+            journal_ref: "".to_string(),
+            pdf_url: "https://arxiv.org/pdf/1706.03762".to_string(),
+            primary_category: "cs.CL".to_string(),
+            categories: vec!["cs.CL".to_string()],
+        };
+        let paper1 = AcademicPaper::from_arxiv(arxiv_paper);
+        assert_eq!(paper1.citations_count, 0); // No SS metrics yet
+
+        // Paper 2: SS-sourced duplicate (has citation metrics)
+        let ss_paper = ss_tools::structs::Paper {
+            paper_id: Some("ss789".to_string()),
+            title: Some("Attention Is All You Need".to_string()),
+            abstract_text: Some("SS abstract".to_string()),
+            citation_count: Some(80_000),
+            influential_citation_count: Some(8_000),
+            reference_count: Some(50),
+            ..Default::default()
+        };
+        let paper2 = AcademicPaper::from_semantic_scholar(ss_paper);
+
+        let papers = vec![paper1, paper2];
+        let result = client.deduplicate_papers(papers);
+
+        // Should produce 1 merged paper, not 2 or drop the duplicate
+        assert_eq!(result.len(), 1);
+        let merged = &result[0];
+
+        // arXiv fields should be preserved (arXiv enrichment applied second)
+        assert_eq!(merged.abstract_text, "arXiv abstract");
+        assert_eq!(merged.url, "https://arxiv.org/abs/1706.03762");
+
+        // SS metrics should be merged in
+        assert_eq!(merged.citations_count, 80_000);
+        assert_eq!(merged.influential_citation_count, 8_000);
+        assert_eq!(merged.references_count, 50);
+        assert_eq!(merged.ss_id, "ss789");
     }
 }

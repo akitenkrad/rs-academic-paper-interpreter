@@ -651,6 +651,69 @@ impl AcademicPaper {
         self.updated_at = Local::now();
     }
 
+    /// Enrich paper data from arXiv
+    ///
+    /// arXiv is the authoritative source for abstracts, URLs, and publication dates,
+    /// so these fields are always overwritten. Other fields are only filled if empty.
+    pub fn enrich_from_arxiv(&mut self, paper: ArxivPaper) {
+        let arxiv_id = Self::extract_arxiv_id(&paper.id);
+
+        // Always overwrite: arXiv is authoritative for these fields
+        self.abstract_text = paper.abstract_text.clone();
+        self.url = format!("https://arxiv.org/abs/{}", arxiv_id);
+        self.published_date = datetime_from_str(&paper.published);
+
+        // Fill empty fields only
+        if self.arxiv_id.is_empty() {
+            self.arxiv_id = arxiv_id;
+        }
+        if self.title.is_empty() {
+            self.title = paper.title.clone();
+        }
+        if self.primary_category.is_empty() {
+            self.primary_category = paper.primary_category.clone();
+        }
+        if self.categories.is_empty() {
+            self.categories = paper.categories.clone();
+        }
+        if self.doi.is_empty() && !paper.doi.is_empty() {
+            self.doi = paper.doi.clone();
+        }
+        if self.journal.is_empty() {
+            self.journal = if paper.journal_ref.is_empty() {
+                "arXiv".to_string()
+            } else {
+                paper.journal_ref.clone()
+            };
+        }
+
+        // Only fill authors if currently empty (SS authors have richer metadata)
+        if self.authors.is_empty() {
+            self.authors = paper
+                .authors
+                .iter()
+                .map(|name| Author::from_arxiv_name(name))
+                .collect();
+        }
+
+        self.arxiv_paper = Some(paper);
+        self.updated_at = Local::now();
+    }
+
+    /// Merge another paper's data into this one
+    ///
+    /// Applies SS enrichment first (metrics, author details, bibtex), then
+    /// arXiv enrichment (overwrites abstract, url, published_date).
+    /// This ordering ensures arXiv's authoritative fields win.
+    pub fn merge_with(&mut self, other: AcademicPaper) {
+        if let Some(ss_paper) = other.ss_paper {
+            self.enrich_from_semantic_scholar(ss_paper);
+        }
+        if let Some(arxiv_paper) = other.arxiv_paper {
+            self.enrich_from_arxiv(arxiv_paper);
+        }
+    }
+
     /// Get arXiv ID (returns error if not available)
     pub fn arxiv_id(&self) -> AppResult<String> {
         if !self.arxiv_id.is_empty() {
@@ -1158,5 +1221,172 @@ mod tests {
         let pdf_url = paper.pdf_url();
         assert!(pdf_url.is_some());
         assert_eq!(pdf_url.unwrap(), "https://arxiv.org/pdf/2301.00001");
+    }
+
+    /// Helper to create a test ArxivPaper
+    fn make_arxiv_paper(id: &str, title: &str, abstract_text: &str, published: &str) -> ArxivPaper {
+        ArxivPaper {
+            id: id.to_string(),
+            title: title.to_string(),
+            authors: vec!["Author A".to_string(), "Author B".to_string()],
+            abstract_text: abstract_text.to_string(),
+            published: published.to_string(),
+            updated: published.to_string(),
+            doi: "".to_string(),
+            comment: vec![],
+            journal_ref: "".to_string(),
+            pdf_url: format!("https://arxiv.org/pdf/{}", id),
+            primary_category: "cs.CL".to_string(),
+            categories: vec!["cs.CL".to_string(), "cs.AI".to_string()],
+        }
+    }
+
+    #[test]
+    fn test_enrich_from_arxiv_overwrites_priority_fields() {
+        // Start with an SS-sourced paper
+        let ss_paper = SsPaper {
+            paper_id: Some("ss123".to_string()),
+            title: Some("Attention Is All You Need".to_string()),
+            abstract_text: Some("SS abstract (less accurate)".to_string()),
+            url: Some("https://semanticscholar.org/paper/ss123".to_string()),
+            publication_date: Some("2017-01-01".to_string()),
+            citation_count: Some(100_000),
+            ..Default::default()
+        };
+        let mut paper = AcademicPaper::from_semantic_scholar(ss_paper);
+
+        assert_eq!(paper.abstract_text, "SS abstract (less accurate)");
+        assert_eq!(paper.url, "https://semanticscholar.org/paper/ss123");
+
+        // Enrich with arXiv data
+        let arxiv_paper = make_arxiv_paper(
+            "1706.03762",
+            "Attention Is All You Need",
+            "arXiv abstract (authoritative)",
+            "2017-06-12T00:00:00Z",
+        );
+        paper.enrich_from_arxiv(arxiv_paper);
+
+        // Priority fields should be overwritten by arXiv
+        assert_eq!(paper.abstract_text, "arXiv abstract (authoritative)");
+        assert_eq!(paper.url, "https://arxiv.org/abs/1706.03762");
+        assert_eq!(
+            paper.published_date.format("%Y-%m-%d").to_string(),
+            "2017-06-12"
+        );
+
+        // SS metrics should be preserved
+        assert_eq!(paper.citations_count, 100_000);
+        assert_eq!(paper.ss_id, "ss123");
+    }
+
+    #[test]
+    fn test_enrich_from_arxiv_fills_empty_fields() {
+        // Paper with some fields already set
+        let mut paper = AcademicPaper::new();
+        paper.title = "Existing Title".to_string();
+        paper.doi = "10.1234/existing".to_string();
+        paper.arxiv_id = "1706.03762".to_string();
+
+        let mut arxiv_paper = make_arxiv_paper(
+            "1706.03762",
+            "arXiv Title",
+            "arXiv abstract",
+            "2017-06-12T00:00:00Z",
+        );
+        arxiv_paper.doi = "10.1234/arxiv-doi".to_string();
+
+        paper.enrich_from_arxiv(arxiv_paper);
+
+        // Title should NOT be overwritten (was non-empty)
+        assert_eq!(paper.title, "Existing Title");
+        // DOI should NOT be overwritten (was non-empty)
+        assert_eq!(paper.doi, "10.1234/existing");
+        // arxiv_id should NOT be overwritten (was non-empty)
+        assert_eq!(paper.arxiv_id, "1706.03762");
+
+        // Priority fields ARE always overwritten
+        assert_eq!(paper.abstract_text, "arXiv abstract");
+        assert_eq!(paper.url, "https://arxiv.org/abs/1706.03762");
+
+        // Empty fields should be filled
+        assert_eq!(paper.primary_category, "cs.CL");
+        assert_eq!(paper.categories, vec!["cs.CL", "cs.AI"]);
+
+        // Authors should be filled (were empty)
+        assert_eq!(paper.authors.len(), 2);
+        assert_eq!(paper.authors[0].name, "Author A");
+    }
+
+    #[test]
+    fn test_enrich_from_arxiv_preserves_ss_authors() {
+        // Start with SS-sourced paper that has rich author data
+        let ss_paper = SsPaper {
+            paper_id: Some("ss123".to_string()),
+            title: Some("Test Paper".to_string()),
+            authors: Some(vec![ss_tools::structs::Author {
+                author_id: Some("auth1".to_string()),
+                name: Some("Alice Researcher".to_string()),
+                hindex: Some(42),
+                paper_count: Some(100),
+                citation_count: Some(5000),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        let mut paper = AcademicPaper::from_semantic_scholar(ss_paper);
+
+        assert_eq!(paper.authors.len(), 1);
+        assert_eq!(paper.authors[0].h_index, 42);
+
+        // Enrich with arXiv — authors should NOT be replaced
+        let arxiv_paper = make_arxiv_paper(
+            "2301.00001",
+            "Test Paper",
+            "arXiv abstract",
+            "2023-01-01T00:00:00Z",
+        );
+        paper.enrich_from_arxiv(arxiv_paper);
+
+        // SS authors preserved (non-empty, so not overwritten)
+        assert_eq!(paper.authors.len(), 1);
+        assert_eq!(paper.authors[0].name, "Alice Researcher");
+        assert_eq!(paper.authors[0].h_index, 42);
+    }
+
+    #[test]
+    fn test_merge_with_prioritizes_arxiv() {
+        // Create an arXiv-sourced paper
+        let arxiv_paper = make_arxiv_paper(
+            "1706.03762",
+            "Attention Is All You Need",
+            "arXiv abstract",
+            "2017-06-12T00:00:00Z",
+        );
+        let mut base = AcademicPaper::from_arxiv(arxiv_paper);
+
+        // Create an SS-sourced paper (the "other" to merge)
+        let ss_paper = SsPaper {
+            paper_id: Some("ss456".to_string()),
+            title: Some("Attention Is All You Need".to_string()),
+            abstract_text: Some("SS abstract".to_string()),
+            citation_count: Some(50_000),
+            influential_citation_count: Some(5_000),
+            reference_count: Some(40),
+            ..Default::default()
+        };
+        let other = AcademicPaper::from_semantic_scholar(ss_paper);
+
+        base.merge_with(other);
+
+        // arXiv fields should win (applied second)
+        assert_eq!(base.abstract_text, "arXiv abstract");
+        assert_eq!(base.url, "https://arxiv.org/abs/1706.03762");
+
+        // SS metrics should be present (applied first)
+        assert_eq!(base.citations_count, 50_000);
+        assert_eq!(base.influential_citation_count, 5_000);
+        assert_eq!(base.references_count, 40);
+        assert_eq!(base.ss_id, "ss456");
     }
 }
