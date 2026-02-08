@@ -289,23 +289,49 @@ impl PaperClient {
 
     /// Search papers by title and return the best match
     ///
-    /// Searches both arXiv and Semantic Scholar, then finds the best matching paper
-    /// based on Levenshtein distance. Returns an error if no paper matches within the threshold.
+    /// Searches both arXiv and Semantic Scholar (general search + exact title search),
+    /// then finds the best matching paper based on Levenshtein distance.
+    /// Returns an error if no paper matches within the threshold.
     pub async fn search_by_title_fuzzy(
         &self,
         title: &str,
         threshold: f64,
     ) -> AppResult<AcademicPaper> {
-        // Search using the title
+        // Search using the title (general search + exact title search in parallel)
         let params = SearchParams::new()
             .with_title(title.to_string())
             .with_max_results(20);
 
-        let result = self.search(params).await?;
+        let general_future = self.search(params);
+        let exact_future = self.semantic_scholar.search_exact_title(title);
+
+        let (general_result, exact_result) = tokio::join!(general_future, exact_future);
+
+        let mut papers = match general_result {
+            Ok(result) => result.papers,
+            Err(_) => Vec::new(),
+        };
+
+        // Add exact title match result from Semantic Scholar if available
+        if let Ok(ss_paper) = exact_result {
+            let exact_paper = AcademicPaper::from_semantic_scholar(ss_paper);
+            // Avoid duplicates: only add if no paper with the same title already exists
+            let normalized_exact = self.normalize_title(&exact_paper.title);
+            let already_exists = papers
+                .iter()
+                .any(|p| self.normalize_title(&p.title) == normalized_exact);
+            if !already_exists {
+                papers.push(exact_paper);
+            }
+        }
+
+        if papers.is_empty() {
+            return Err(AppError::PaperNotFound("No papers found".to_string()));
+        }
 
         // Find best match
         let (idx, distance) = self
-            .find_best_match_by_title(&result.papers, title)
+            .find_best_match_by_title(&papers, title)
             .ok_or_else(|| AppError::PaperNotFound("No papers found".to_string()))?;
 
         if distance > threshold {
@@ -315,7 +341,7 @@ impl PaperClient {
             )));
         }
 
-        Ok(result.papers.into_iter().nth(idx).unwrap())
+        Ok(papers.into_iter().nth(idx).unwrap())
     }
 }
 
