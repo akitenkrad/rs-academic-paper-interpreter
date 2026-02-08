@@ -10,49 +10,9 @@ use academic_paper_interpreter::{
     ExtractionConfig, KeywordsData, LlmProvider, PaperAnalyzer, PaperClient, PaperSummary,
     ReferenceData, ReferenceStatistics, ResearchContext, SearchParams, get_xml_schema,
 };
-use chrono::Local;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::path::PathBuf;
-
-/// Generate timestamp string in yyyyMMddHHmmSS format
-fn generate_timestamp() -> String {
-    Local::now().format("%Y%m%d%H%M%S").to_string()
-}
-
-/// Generate output file path with timestamp
-/// - If user_path is None: returns "paper_yyyyMMddHHmmSS.{ext}"
-/// - If user_path is Some: inserts "_yyyyMMddHHmmSS" before the extension
-fn generate_output_path(user_path: Option<PathBuf>, format: ExportFormat) -> PathBuf {
-    let timestamp = generate_timestamp();
-    let ext = match format {
-        ExportFormat::Json => "json",
-        ExportFormat::Xml => "xml",
-    };
-
-    match user_path {
-        None => {
-            // Default: paper_yyyyMMddHHmmSS.{ext}
-            PathBuf::from(format!("paper_{}.{}", timestamp, ext))
-        }
-        Some(path) => {
-            // User specified: insert _yyyyMMddHHmmSS before extension
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("paper");
-            let user_ext = path.extension().and_then(|e| e.to_str()).unwrap_or(ext);
-            let new_filename = format!("{}_{}.{}", stem, timestamp, user_ext);
-
-            if let Some(parent) = path.parent() {
-                if parent.as_os_str().is_empty() {
-                    PathBuf::from(new_filename)
-                } else {
-                    parent.join(new_filename)
-                }
-            } else {
-                PathBuf::from(new_filename)
-            }
-        }
-    }
-}
 
 /// Academic Paper Interpreter - Search, fetch, and analyze academic papers with LLM
 #[derive(Parser)]
@@ -156,9 +116,9 @@ enum Commands {
         #[arg(long, default_value = "0.3")]
         threshold: f64,
 
-        /// Output file path (default: paper_yyyyMMddHHmmSS.{ext}, timestamp is always appended)
-        #[arg(short, long)]
-        output: Option<PathBuf>,
+        /// Output file path
+        #[arg(short, long, default_value = "paper.xml")]
+        output: PathBuf,
 
         /// Run LLM analysis on the paper
         #[arg(short, long)]
@@ -197,7 +157,7 @@ enum Commands {
         compact: bool,
 
         /// Output format (json or xml)
-        #[arg(short = 'f', long, value_enum, default_value = "json")]
+        #[arg(short = 'f', long, value_enum, default_value = "xml")]
         format: ExportFormat,
 
         /// Output XML Schema (.xsd) alongside the XML file (only for XML format)
@@ -700,7 +660,7 @@ async fn cmd_export(
     ss: Option<String>,
     title: Option<String>,
     threshold: f64,
-    output_path: Option<PathBuf>,
+    output_path: PathBuf,
     analyze: bool,
     extract_text: bool,
     include_citations: bool,
@@ -941,15 +901,12 @@ async fn cmd_export(
         ExportFormat::Xml => exported.to_xml(),
     };
 
-    // Generate output path with timestamp
-    let final_output_path = generate_output_path(output_path, format);
-
-    std::fs::write(&final_output_path, &output_content)?;
-    eprintln!("Exported to: {}", final_output_path.display());
+    std::fs::write(&output_path, &output_content)?;
+    eprintln!("Exported to: {}", output_path.display());
 
     // Output XML Schema if requested (only for XML format)
     if with_schema && matches!(format, ExportFormat::Xml) {
-        let schema_path = final_output_path.with_extension("xsd");
+        let schema_path = output_path.with_extension("xsd");
         std::fs::write(&schema_path, get_xml_schema())?;
         eprintln!("Schema exported to: {}", schema_path.display());
     }
