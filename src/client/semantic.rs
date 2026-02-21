@@ -25,7 +25,7 @@ impl SemanticScholarClient {
         Self {
             client: SemanticScholar::new(),
             retry_count: 3,
-            wait_time: 1,
+            wait_time: 5,
         }
     }
 

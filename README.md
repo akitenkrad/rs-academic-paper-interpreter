@@ -32,7 +32,6 @@ cargo build --release
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key | OpenAI使用時 |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Anthropic使用時 |
-| `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API key | Optional |
 | `OLLAMA_BASE_URL` | Ollama server URL (default: http://localhost:11434) | Ollama使用時 |
 | `OLLAMA_MODEL` | Default Ollama model | Ollama使用時 |
 | `LLM_PROVIDER` | Default provider: openai, anthropic, ollama | Optional |

@@ -29,9 +29,6 @@ impl std::fmt::Display for LlmProviderType {
 /// Library configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Semantic Scholar API key (optional, rate limits apply without it)
-    pub semantic_scholar_api_key: Option<String>,
-
     /// OpenAI API key
     pub openai_api_key: Option<String>,
 
@@ -66,7 +63,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            semantic_scholar_api_key: None,
             openai_api_key: None,
             openai_model: None,
             anthropic_api_key: None,
@@ -76,7 +72,7 @@ impl Default for Config {
             default_llm_provider: LlmProviderType::default(),
             default_model: None,
             retry_count: 3,
-            retry_wait_time: 1,
+            retry_wait_time: 5,
         }
     }
 }
@@ -90,7 +86,6 @@ impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> AppResult<Self> {
         Ok(Self {
-            semantic_scholar_api_key: std::env::var("SEMANTIC_SCHOLAR_API_KEY").ok(),
             openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
             openai_model: std::env::var("OPENAI_MODEL").ok(),
             anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
@@ -106,7 +101,7 @@ impl Config {
             retry_wait_time: std::env::var("API_RETRY_WAIT")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(1),
+                .unwrap_or(5),
         })
     }
 
@@ -156,12 +151,6 @@ impl Config {
     /// Set Anthropic API key
     pub fn with_anthropic_key(mut self, key: impl Into<String>) -> Self {
         self.anthropic_api_key = Some(key.into());
-        self
-    }
-
-    /// Set Semantic Scholar API key
-    pub fn with_ss_key(mut self, key: impl Into<String>) -> Self {
-        self.semantic_scholar_api_key = Some(key.into());
         self
     }
 

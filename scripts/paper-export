@@ -130,7 +130,6 @@ OTHER OPTIONS:
 ENVIRONMENT VARIABLES:
     OPENAI_API_KEY            Required for OpenAI provider
     ANTHROPIC_API_KEY         Required for Anthropic provider
-    SEMANTIC_SCHOLAR_API_KEY  Optional: improves API rate limits
 
 EXAMPLES:
     # Full export with all features (recommended)
