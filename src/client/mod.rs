@@ -6,13 +6,15 @@
 mod arxiv;
 mod search;
 mod semantic;
+mod unpaywall;
 
 pub use arxiv::ArxivClient;
 pub use search::{PaperSource, SearchParams, SearchResult};
 pub use semantic::SemanticScholarClient;
+pub use unpaywall::UnpaywallClient;
 
 use crate::models::AcademicPaper;
-use crate::pdf::{ExtractionConfig, PdfExtractor};
+use crate::pdf::{ExtractionConfig, PdfExtractor, PdfUrlResolver};
 use crate::shared::errors::{AppError, AppResult};
 use strsim::normalized_levenshtein;
 
@@ -20,6 +22,7 @@ use strsim::normalized_levenshtein;
 pub struct PaperClient {
     arxiv: ArxivClient,
     semantic_scholar: SemanticScholarClient,
+    unpaywall: Option<UnpaywallClient>,
 }
 
 impl Default for PaperClient {
@@ -34,6 +37,7 @@ impl PaperClient {
         Self {
             arxiv: ArxivClient::new(),
             semantic_scholar: SemanticScholarClient::new(),
+            unpaywall: UnpaywallClient::from_env(),
         }
     }
 
@@ -133,17 +137,30 @@ impl PaperClient {
         Ok(paper)
     }
 
+    /// Create a PDF URL resolver using this client's sub-clients
+    fn pdf_resolver(&self) -> PdfUrlResolver<'_> {
+        PdfUrlResolver::new(&self.semantic_scholar, self.unpaywall.as_ref())
+    }
+
     /// Try to extract PDF text for a paper (non-fatal on failure)
     ///
     /// If extraction fails, a warning is logged and `extracted_text` remains `None`.
     async fn try_extract_text(&self, paper: &mut AcademicPaper) {
-        let extractor = PdfExtractor::new();
-        match extractor.extract_for_paper(paper).await {
-            Ok(text) => {
-                paper.set_extracted_text(text);
+        let resolver = self.pdf_resolver();
+        match resolver.resolve(paper).await {
+            Ok(url) => {
+                let extractor = PdfExtractor::new();
+                match extractor.extract_from_url(&url).await {
+                    Ok(text) => {
+                        paper.set_extracted_text(text);
+                    }
+                    Err(e) => {
+                        tracing::warn!("PDF extraction failed for '{}': {}", paper.title, e);
+                    }
+                }
             }
             Err(e) => {
-                tracing::warn!("PDF extraction failed for '{}': {}", paper.title, e);
+                tracing::warn!("PDF URL resolution failed for '{}': {}", paper.title, e);
             }
         }
     }
@@ -152,8 +169,10 @@ impl PaperClient {
     ///
     /// Use this method when you need to ensure text extraction succeeds.
     pub async fn extract_text(&self, paper: &mut AcademicPaper) -> AppResult<()> {
+        let resolver = self.pdf_resolver();
+        let url = resolver.resolve(paper).await?;
         let extractor = PdfExtractor::new();
-        let text = extractor.extract_for_paper(paper).await?;
+        let text = extractor.extract_from_url(&url).await?;
         paper.set_extracted_text(text);
         Ok(())
     }
@@ -167,8 +186,10 @@ impl PaperClient {
         paper: &mut AcademicPaper,
         config: ExtractionConfig,
     ) -> AppResult<()> {
+        let resolver = self.pdf_resolver();
+        let url = resolver.resolve(paper).await?;
         let extractor = PdfExtractor::with_config(config);
-        let text = extractor.extract_for_paper(paper).await?;
+        let text = extractor.extract_from_url(&url).await?;
         paper.set_extracted_text(text);
         Ok(())
     }

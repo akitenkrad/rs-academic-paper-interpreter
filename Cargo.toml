@@ -40,6 +40,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 ss-tools = { git = "https://github.com/akitenkrad/rs-ss-tools.git" }
 strsim = "0.11"
+urlencoding = "2.1"
 strum = { version = "0.27.2", features = ["derive"] }
 test-log = { version = "0.2.19", features = ["trace"] }
 thiserror = "2.0.18"
@@ -67,6 +68,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 ss-tools = { workspace = true }
 strsim = { workspace = true }
+urlencoding = { workspace = true }
 strum = { version = "0.27.2", features = ["derive"] }
 test-log = { workspace = true }
 thiserror = { workspace = true }

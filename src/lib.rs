@@ -53,7 +53,8 @@ pub use export::{
 pub use models::{
     AcademicPaper, Author, DatasetInfo, ExtractedReference, PaperAnalysis, PaperSection, PaperText,
 };
-pub use pdf::{ExtractionConfig, PdfExtractor};
+pub use client::UnpaywallClient;
+pub use pdf::{ExtractionConfig, PdfExtractor, PdfUrlResolver};
 pub use shared::config::Config;
 pub use shared::errors::{AppError, AppResult};
 

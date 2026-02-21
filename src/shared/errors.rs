@@ -33,6 +33,10 @@ pub enum AppError {
     #[error("PDF extraction failed: {0}")]
     PdfExtractionError(String),
 
+    /// Unpaywall API error
+    #[error("Unpaywall API error: {0}")]
+    UnpaywallError(String),
+
     /// Configuration error
     #[error("Configuration error: {0}")]
     ConfigError(String),

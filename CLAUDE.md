@@ -131,3 +131,4 @@ async fn my_async_test() {
 | `OLLAMA_MODEL` | Default Ollama model (default: llama3.2) |
 | `LLM_PROVIDER` | Default provider: openai, anthropic, ollama |
 | `LLM_MODEL` | Override model for any provider (takes precedence over provider-specific env vars) |
+| `UNPAYWALL_EMAIL` | Email for Unpaywall API (enables DOI-based PDF URL resolution) |
