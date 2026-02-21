@@ -24,14 +24,18 @@ impl ArxivClient {
             .sort_by(SortBy::SubmittedDate)
             .sort_order(SortOrder::Descending)
             .query()
-            .await;
+            .await
+            .map_err(|e| AppError::ArxivError(e.to_string()))?;
 
         Ok(papers)
     }
 
     /// Fetch a single paper by arXiv ID
     pub async fn fetch_by_id(&self, arxiv_id: &str) -> AppResult<ArxivPaper> {
-        let papers = ArXiv::from_id_list(vec![arxiv_id]).query().await;
+        let papers = ArXiv::from_id_list(vec![arxiv_id])
+            .query()
+            .await
+            .map_err(|e| AppError::ArxivError(e.to_string()))?;
 
         papers
             .into_iter()
