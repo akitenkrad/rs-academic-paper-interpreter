@@ -702,11 +702,14 @@ async fn cmd_export(
         );
         match client.search_by_title_fuzzy(title_query, threshold).await {
             Ok(found_paper) => {
-                eprintln!("Found: \"{}\"", found_paper.title);
+                eprintln!("Title: \"{}\"", found_paper.title);
+                print_source_status(&found_paper);
                 (found_paper, None)
             }
             Err(e) => {
                 eprintln!("Warning: Paper not found by title, continuing with empty metadata");
+                eprintln!("  arXiv:            not found");
+                eprintln!("  Semantic Scholar: not found");
                 // Create empty paper with title set
                 let mut empty_paper = AcademicPaper::new();
                 empty_paper.title = title_query.clone();
@@ -728,11 +731,16 @@ async fn cmd_export(
 
         match client.search(params).await {
             Ok(result) if !result.papers.is_empty() => {
-                (result.papers.into_iter().next().unwrap(), None)
+                let found_paper = result.papers.into_iter().next().unwrap();
+                eprintln!("Title: \"{}\"", found_paper.title);
+                print_source_status(&found_paper);
+                (found_paper, None)
             }
             Ok(_) | Err(_) => {
                 // Paper not found in any source - create empty paper with provided IDs
                 eprintln!("Warning: Paper metadata not found, continuing with provided IDs");
+                eprintln!("  arXiv:            not found");
+                eprintln!("  Semantic Scholar: not found");
                 let mut empty_paper = AcademicPaper::new();
                 if let Some(id) = &arxiv {
                     empty_paper.arxiv_id = id.clone();
@@ -902,7 +910,9 @@ async fn cmd_export(
     };
 
     std::fs::write(&output_path, &output_content)?;
-    eprintln!("Exported to: {}", output_path.display());
+
+    // Print export summary
+    print_export_summary(&exported, &output_path, output_content.len());
 
     // Output XML Schema if requested (only for XML format)
     if with_schema && matches!(format, ExportFormat::Xml) {
@@ -982,4 +992,85 @@ async fn extract_keywords_with_provider<P: LlmProvider>(
         .await?;
 
     Ok((keywords, context))
+}
+
+/// Print source-specific search status for a paper
+fn print_source_status(paper: &AcademicPaper) {
+    if !paper.arxiv_id.is_empty() {
+        eprintln!("  arXiv:            found ({})", paper.arxiv_id);
+    } else {
+        eprintln!("  arXiv:            not found");
+    }
+    if !paper.ss_id.is_empty() {
+        eprintln!("  Semantic Scholar: found ({})", paper.ss_id);
+    } else {
+        eprintln!("  Semantic Scholar: not found");
+    }
+}
+
+/// Format byte size to human-readable string
+fn format_file_size(bytes: usize) -> String {
+    const KB: usize = 1024;
+    const MB: usize = 1024 * KB;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// Print export summary including analysis overview and file size
+fn print_export_summary(exported: &ExportedPaper, output_path: &std::path::Path, file_size: usize) {
+    eprintln!();
+    eprintln!("--- Export Summary ---");
+
+    // Analysis summary
+    if let Some(ref analysis) = exported.paper.analysis {
+        let summary_preview = if analysis.summary.len() > 200 {
+            let truncate_at = analysis.summary.floor_char_boundary(200);
+            let end = analysis.summary[..truncate_at].rfind(' ').unwrap_or(truncate_at);
+            format!("{}...", &analysis.summary[..end])
+        } else {
+            analysis.summary.clone()
+        };
+        eprintln!("Analysis:    {} ({})", analysis.provider, analysis.model);
+        eprintln!("Summary:     {}", summary_preview);
+        if !analysis.key_contributions.is_empty() {
+            eprintln!("Contributions: {} items", analysis.key_contributions.len());
+        }
+        if !analysis.tasks.is_empty() {
+            eprintln!("Tasks:       {}", analysis.tasks.join(", "));
+        }
+    } else {
+        eprintln!("Analysis:    (not performed)");
+    }
+
+    // Text extraction
+    if exported.paper.has_extracted_text() {
+        eprintln!("Text:        extracted");
+    }
+
+    // Citations / references
+    if let Some(ref citations) = exported.citations {
+        eprintln!("Citations:   {} fetched (total: {})", citations.fetched_count, citations.total_count);
+    }
+    if let Some(ref references) = exported.references {
+        eprintln!("References:  {} fetched (total: {})", references.fetched_count, references.total_count);
+    }
+
+    // Keywords
+    if let Some(ref kw) = exported.keywords {
+        eprintln!("Keywords:    {} extracted", kw.keywords.len());
+    }
+
+    // Warnings
+    if !exported.export_metadata.warnings.is_empty() {
+        eprintln!("Warnings:    {}", exported.export_metadata.warnings.len());
+    }
+
+    // Output file info
+    eprintln!();
+    eprintln!("Exported to: {} ({})", output_path.display(), format_file_size(file_size));
 }
