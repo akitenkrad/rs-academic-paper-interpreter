@@ -32,7 +32,7 @@ pub struct Config {
     /// OpenAI API key
     pub openai_api_key: Option<String>,
 
-    /// OpenAI model (default: gpt-4o)
+    /// OpenAI model (default: gpt-5.2)
     pub openai_model: Option<String>,
 
     /// Anthropic API key

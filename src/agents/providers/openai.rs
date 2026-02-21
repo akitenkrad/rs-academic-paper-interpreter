@@ -8,7 +8,7 @@ use openai_tools::common::message::Message as OpenAiMessage;
 use openai_tools::common::models::ChatModel;
 use openai_tools::common::role::Role as OpenAiRole;
 
-const DEFAULT_OPENAI_MODEL: &str = "gpt-4o";
+const DEFAULT_OPENAI_MODEL: &str = "gpt-5.2";
 
 /// OpenAI API provider
 ///
@@ -41,7 +41,7 @@ impl OpenAiProvider {
 
     /// Create from environment variables
     ///
-    /// Reads OPENAI_API_KEY (required) and OPENAI_MODEL (optional, defaults to gpt-4o)
+    /// Reads OPENAI_API_KEY (required) and OPENAI_MODEL (optional, defaults to gpt-5.2)
     pub fn from_env() -> AppResult<Self> {
         // Verify the environment variable is set
         std::env::var("OPENAI_API_KEY").map_err(|_| {
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn test_default_model() {
         let provider = OpenAiProvider::new("test-key");
-        assert_eq!(provider.default_model(), "gpt-4o");
+        assert_eq!(provider.default_model(), "gpt-5.2");
 
         let provider = OpenAiProvider::with_model("gpt-4-turbo");
         assert_eq!(provider.default_model(), "gpt-4-turbo");

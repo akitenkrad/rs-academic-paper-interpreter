@@ -89,7 +89,7 @@ enum Commands {
         #[arg(short, long, value_enum)]
         provider: Option<ProviderArg>,
 
-        /// Model name (e.g., gpt-4o, claude-3-opus-20240229)
+        /// Model name (e.g., gpt-5.2, claude-3-opus-20240229)
         #[arg(short, long)]
         model: Option<String>,
 
@@ -1026,51 +1026,49 @@ fn print_export_summary(exported: &ExportedPaper, output_path: &std::path::Path,
     eprintln!();
     eprintln!("--- Export Summary ---");
 
-    // Analysis summary
+    // Analysis
     if let Some(ref analysis) = exported.paper.analysis {
+        eprintln!("Analysis:  {} ({})", analysis.provider, analysis.model);
+
+        // Title
+        eprintln!("Title:     {}", exported.paper.title);
+
+        // Summary (truncate to ~200 chars)
         let summary_preview = if analysis.summary.len() > 200 {
             let truncate_at = analysis.summary.floor_char_boundary(200);
-            let end = analysis.summary[..truncate_at].rfind(' ').unwrap_or(truncate_at);
+            let end = analysis.summary[..truncate_at]
+                .rfind(' ')
+                .unwrap_or(truncate_at);
             format!("{}...", &analysis.summary[..end])
         } else {
             analysis.summary.clone()
         };
-        eprintln!("Analysis:    {} ({})", analysis.provider, analysis.model);
-        eprintln!("Summary:     {}", summary_preview);
-        if !analysis.key_contributions.is_empty() {
-            eprintln!("Contributions: {} items", analysis.key_contributions.len());
-        }
+        eprintln!("Summary:   {}", summary_preview);
+
+        // Tasks
         if !analysis.tasks.is_empty() {
-            eprintln!("Tasks:       {}", analysis.tasks.join(", "));
+            eprintln!("Tasks:     {}", analysis.tasks.join(", "));
         }
     } else {
-        eprintln!("Analysis:    (not performed)");
+        eprintln!("Analysis:  (not performed)");
+        eprintln!("Title:     {}", exported.paper.title);
     }
 
-    // Text extraction
+    // Text extraction result
     if exported.paper.has_extracted_text() {
-        eprintln!("Text:        extracted");
+        eprintln!("Text:      OK");
+    } else if exported.export_metadata.options.text_extracted {
+        eprintln!("Text:      FAILED");
     }
 
-    // Citations / references
-    if let Some(ref citations) = exported.citations {
-        eprintln!("Citations:   {} fetched (total: {})", citations.fetched_count, citations.total_count);
-    }
-    if let Some(ref references) = exported.references {
-        eprintln!("References:  {} fetched (total: {})", references.fetched_count, references.total_count);
-    }
-
-    // Keywords
-    if let Some(ref kw) = exported.keywords {
-        eprintln!("Keywords:    {} extracted", kw.keywords.len());
-    }
+    // File size
+    eprintln!("File:      {} ({})", output_path.display(), format_file_size(file_size));
 
     // Warnings
     if !exported.export_metadata.warnings.is_empty() {
-        eprintln!("Warnings:    {}", exported.export_metadata.warnings.len());
+        eprintln!("Warnings:");
+        for w in &exported.export_metadata.warnings {
+            eprintln!("  - {}", w);
+        }
     }
-
-    // Output file info
-    eprintln!();
-    eprintln!("Exported to: {} ({})", output_path.display(), format_file_size(file_size));
 }

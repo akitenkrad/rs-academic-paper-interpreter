@@ -124,7 +124,7 @@ async fn my_async_test() {
 | Variable | Description |
 |----------|-------------|
 | `OPENAI_API_KEY` | OpenAI API key |
-| `OPENAI_MODEL` | OpenAI model (default: gpt-4o) |
+| `OPENAI_MODEL` | OpenAI model (default: gpt-5.2) |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `ANTHROPIC_MODEL` | Anthropic model (default: claude-sonnet-4-20250514) |
 | `OLLAMA_BASE_URL` | Ollama server URL (default: http://localhost:11434) |
