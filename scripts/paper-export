@@ -24,6 +24,9 @@
 #   # Use Anthropic instead of OpenAI
 #   paper-export --title "BERT" -p anthropic
 #
+#   # Export using a local PDF file
+#   paper-export --title "My Paper" --pdf ./paper.pdf -o output.xml
+#
 # INSTALLATION:
 #   1. Build the binary:
 #      cargo make release-build
@@ -55,6 +58,7 @@ fi
 TITLE=""
 ARXIV_ID=""
 SS_ID=""
+PDF_PATH=""
 PROVIDER="openai"
 FORMAT="xml"
 OUTPUT=""
@@ -93,6 +97,7 @@ SEARCH OPTIONS:
     --arxiv <ID>              Fetch by arXiv ID (e.g., 2401.15884)
     --ss <ID>                 Fetch by Semantic Scholar ID
     --threshold <FLOAT>       Title similarity threshold (default: 0.3, lower = stricter)
+    --pdf <FILE>              Local PDF file path for text extraction (skips online PDF resolution)
 
 OUTPUT OPTIONS:
     -o, --output <FILE>       Output file path (default: stdout)
@@ -143,6 +148,9 @@ EXAMPLES:
 
     # Minimal export (paper metadata only)
     paper-export --arxiv 2401.15884 --no-analyze --no-extract --no-citations --no-references --no-keywords
+
+    # Export using a local PDF file for text extraction
+    paper-export --title "My Paper" --pdf ./paper.pdf -o output.xml
 
 EOF
 }
@@ -259,6 +267,10 @@ while [[ $# -gt 0 ]]; do
             MODEL="$2"
             shift 2
             ;;
+        --pdf)
+            PDF_PATH="$2"
+            shift 2
+            ;;
         --log-level)
             LOG_LEVEL="$2"
             shift 2
@@ -317,6 +329,14 @@ case $FORMAT in
         exit 1
         ;;
 esac
+
+# Validate PDF file if specified
+if [[ -n "$PDF_PATH" ]]; then
+    if [[ ! -f "$PDF_PATH" ]]; then
+        echo -e "${RED}Error: PDF file not found: $PDF_PATH${NC}" >&2
+        exit 1
+    fi
+fi
 
 # Check API keys
 if [[ "$DO_ANALYZE" == true || "$DO_KEYWORDS" == true ]]; then
@@ -383,6 +403,11 @@ if [[ "$DO_KEYWORDS" == true ]]; then
     CMD_ARGS+=("--extract-keywords")
 fi
 CMD_ARGS+=("--max-citations" "$MAX_CITATIONS")
+
+# PDF option
+if [[ -n "$PDF_PATH" ]]; then
+    CMD_ARGS+=("--pdf" "$PDF_PATH")
+fi
 
 # Provider options
 CMD_ARGS+=("--provider" "$PROVIDER")

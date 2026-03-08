@@ -88,6 +88,11 @@ impl PdfExtractor {
     pub async fn extract_from_url(&self, url: &str) -> AppResult<PaperText> {
         tracing::info!("Extracting text from PDF: {}", url);
 
+        // Bridge OPENAI_MODEL → OPENAI_API_MODEL so rsrpp uses the same env var
+        let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5-mini".to_string());
+        // SAFETY: called before spawning rsrpp parse (single-threaded at this point)
+        unsafe { std::env::set_var("OPENAI_API_MODEL", &model) };
+
         let mut parser_config = ParserConfig::new();
 
         // Enable reference extraction if configured and LLM is available
