@@ -8,7 +8,8 @@ use academic_paper_interpreter::shared::logger::init_logger;
 use academic_paper_interpreter::{
     AcademicPaper, CitationData, CitationStatistics, ExportOptions, ExportedPaper,
     ExtractionConfig, KeywordsData, LlmProvider, PaperAnalyzer, PaperClient, PaperSummary,
-    ReferenceData, ReferenceStatistics, ResearchContext, SearchParams, get_xml_schema,
+    PdfExtractor, ReferenceData, ReferenceStatistics, ResearchContext, SearchParams,
+    get_xml_schema,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
@@ -171,6 +172,10 @@ enum Commands {
         /// Disable bibliographic reference extraction from PDF (requires OPENAI_API_KEY)
         #[arg(long)]
         no_extract_references: bool,
+
+        /// Local PDF file path for text extraction (skips online PDF resolution)
+        #[arg(long)]
+        pdf: Option<PathBuf>,
     },
 }
 
@@ -259,6 +264,7 @@ async fn main() -> anyhow::Result<()> {
             with_schema,
             no_math_markup,
             no_extract_references,
+            pdf,
         } => {
             cmd_export(
                 arxiv,
@@ -279,6 +285,7 @@ async fn main() -> anyhow::Result<()> {
                 with_schema,
                 no_math_markup,
                 no_extract_references,
+                pdf,
             )
             .await?;
         }
@@ -674,10 +681,26 @@ async fn cmd_export(
     with_schema: bool,
     no_math_markup: bool,
     no_extract_references: bool,
+    pdf: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     if arxiv.is_none() && ss.is_none() && title.is_none() {
         anyhow::bail!("Either --arxiv, --ss, or --title is required");
     }
+
+    // --pdf requires --title (or --arxiv/--ss) to identify the paper
+    if pdf.is_some() && arxiv.is_none() && ss.is_none() && title.is_none() {
+        anyhow::bail!("--pdf requires --title, --arxiv, or --ss to identify the paper");
+    }
+
+    // Validate that the local PDF file exists
+    if let Some(ref pdf_path) = pdf {
+        if !pdf_path.exists() {
+            anyhow::bail!("PDF file not found: {}", pdf_path.display());
+        }
+    }
+
+    // --pdf implies --extract-text
+    let extract_text = extract_text || pdf.is_some();
 
     // Build export options
     let mut export_options = ExportOptions {
@@ -783,13 +806,26 @@ async fn cmd_export(
             .with_include_math(!no_math_markup)
             .with_extract_references(!no_extract_references);
 
-        match client
-            .extract_text_with_config(&mut paper, extraction_config)
-            .await
-        {
-            Ok(_) => {}
-            Err(e) => {
-                exported.add_warning(format!("Text extraction failed: {}", e));
+        if let Some(ref pdf_path) = pdf {
+            // Extract from local PDF file
+            let extractor = PdfExtractor::with_config(extraction_config);
+            let path_str = pdf_path.to_string_lossy();
+            match extractor.extract_from_url(&path_str).await {
+                Ok(text) => paper.set_extracted_text(text),
+                Err(e) => {
+                    exported.add_warning(format!("Text extraction failed: {}", e));
+                }
+            }
+        } else {
+            // Extract from online PDF via URL resolution
+            match client
+                .extract_text_with_config(&mut paper, extraction_config)
+                .await
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    exported.add_warning(format!("Text extraction failed: {}", e));
+                }
             }
         }
     }
