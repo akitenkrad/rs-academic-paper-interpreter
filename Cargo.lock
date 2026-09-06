@@ -2856,8 +2856,8 @@ dependencies = [
 
 [[package]]
 name = "rsrpp"
-version = "2.0.1"
-source = "git+https://github.com/akitenkrad/rsrpp.git?tag=v2.0.1#de3f4a346963bc081f57ce04c69c2ae644acafe3"
+version = "2.0.2"
+source = "git+https://github.com/akitenkrad/rsrpp.git?tag=v2.0.2#683daf5b3db7580fd0f45346d174cb130fd0853b"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
