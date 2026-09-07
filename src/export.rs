@@ -1548,12 +1548,47 @@ impl ExportedPaper {
 }
 
 /// Escape XML special characters
+/// True for characters XML 1.0 allows in a document at all (the `Char` production).
+///
+/// Everything else has no representation: a numeric character reference does not
+/// help, because `&#x0F;` is itself forbidden in XML 1.0. Such a byte can only be
+/// dropped or replaced before it reaches the output.
+fn is_xml_char(c: char) -> bool {
+    matches!(c,
+        '\u{09}' | '\u{0A}' | '\u{0D}'
+        | '\u{20}'..='\u{D7FF}'
+        | '\u{E000}'..='\u{FFFD}'
+        | '\u{10000}'..='\u{10FFFF}')
+}
+
+/// Escape text for an XML text node, replacing anything XML cannot carry.
+///
+/// The five predefined entities are the obvious half. The other half is that
+/// extracted paper text arrives with raw C0 control bytes in it: poppler maps the
+/// glyphs of some Type1 math fonts onto them, so an epsilon comes out of the PDF as
+/// `\x0F`. Writing those through produced files no parser would read — 748 of the
+/// 2,936 papers exported into the Obsidian vault (25.5%) failed to parse, and the
+/// error landed in the middle of the body, so a file looked fine until it was read
+/// to the end (MYTASK-3216).
+///
+/// A forbidden character becomes a single space rather than being deleted: it sits
+/// where a symbol used to be, so a space keeps the words around it apart and leaves
+/// offsets into the text usable as an index. Tab, newline and carriage return are
+/// legal and are kept as they are.
 fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            c if is_xml_char(c) => out.push(c),
+            _ => out.push(' '),
+        }
+    }
+    out
 }
 
 /// Export operation metadata
@@ -1865,6 +1900,7 @@ pub struct ResearchContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{PaperSection, PaperText, SectionImportance};
 
     fn create_test_paper() -> AcademicPaper {
         let mut paper = AcademicPaper::new();
@@ -1929,6 +1965,76 @@ mod tests {
         assert_eq!(stats.by_year.get(&2021), Some(&1));
         assert!(!stats.top_venues.is_empty());
         assert_eq!(stats.most_influential[0], "Paper 3");
+    }
+
+    #[test]
+    fn test_escape_xml_predefined_entities() {
+        assert_eq!(
+            escape_xml(r#"a & b < c > d " e ' f"#),
+            "a &amp; b &lt; c &gt; d &quot; e &apos; f"
+        );
+    }
+
+    #[test]
+    fn test_escape_xml_replaces_forbidden_control_characters() {
+        // What poppler hands back for an epsilon set in a Type1 math font.
+        assert_eq!(escape_xml("\u{0F}i = P i,D i"), " i = P i,D i");
+        // The whole forbidden range, not just the byte that was noticed first.
+        for c in [
+            '\u{00}', '\u{01}', '\u{08}', '\u{0B}', '\u{0C}', '\u{0E}', '\u{1A}', '\u{1F}',
+        ] {
+            assert_eq!(
+                escape_xml(&c.to_string()),
+                " ",
+                "U+{:04X} must not survive",
+                c as u32
+            );
+        }
+        assert_eq!(escape_xml("\u{FFFE}\u{FFFF}"), "  ");
+    }
+
+    #[test]
+    fn test_escape_xml_keeps_legal_whitespace_and_text() {
+        assert_eq!(escape_xml("a\tb\nc\rd"), "a\tb\nc\rd");
+        assert_eq!(escape_xml("ε ∈ ℝ 日本語"), "ε ∈ ℝ 日本語");
+    }
+
+    #[test]
+    fn test_to_xml_is_well_formed_with_control_characters_in_the_body() {
+        let mut paper = create_test_paper();
+        paper.title = "Detecting \u{01}Anomalies".to_string();
+        paper.set_extracted_text(PaperText {
+            plain_text: String::new(),
+            sections: vec![PaperSection {
+                index: 0,
+                title: "Method\u{02}".to_string(),
+                content: "we set \u{0F}i = 0.5 & compare < baseline".to_string(),
+                importance: SectionImportance::Critical,
+                math_content: Some("\u{0F}i = P i,D i".to_string()),
+                captions: Some(vec!["Figure 1. Overview\u{1A}".to_string()]),
+            }],
+            markdown: String::new(),
+            extracted_at: Local::now(),
+            source_url: "file:///tmp/test.pdf".to_string(),
+            extracted_references: None,
+        });
+        let xml = ExportedPaper::new(paper, ExportOptions::default()).to_xml();
+
+        assert!(
+            !xml.chars().any(|c| !is_xml_char(c)),
+            "the output still carries a character XML 1.0 forbids"
+        );
+
+        // The point of the fix is that a parser gets to the end of the document.
+        let mut reader = quick_xml::Reader::from_str(&xml);
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(quick_xml::events::Event::Eof) => break,
+                Ok(_) => buf.clear(),
+                Err(e) => panic!("generated XML does not parse: {e}"),
+            }
+        }
     }
 
     #[test]
